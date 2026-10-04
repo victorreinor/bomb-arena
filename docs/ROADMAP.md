@@ -30,7 +30,8 @@ Legenda: `[x]` feito · `[ ]` pendente. Atualizar a cada entrega.
 - [x] Efeitos sonoros (bomba, explosão, power-up, morte, vitória/derrota) e músicas distintas (lobby leve / batalha acelerada e sombria), sintetizados; botões separados para música (M) e efeitos (N), salvos no navegador
 - [x] Teste e2e (`bun run e2e`) e fluxo de 3 abas verificado em Chrome headless
 - [ ] **Deploy** Vercel + Cloudflare (precisa do seu login; passos no README)
-- [ ] Predição de movimento no cliente (hoje o movimento espera o servidor: atraso ≈ ping)
+- [x] Predição de movimento no cliente: o próprio boneco anda, planta bomba e usa o pet na hora (antes esperava a ida e volta ao servidor, ~140 ms do Brasil); correções do servidor são suavizadas
+- [x] Reserva de reprodução que se ajusta à rede (1 a 3 ticks, antes 2 fixos) e vibração no celular (toque nos botões, bomba, item, golpe, morte; dá para desligar no ⚙️)
 - [x] Placar da sessão (🏆 por jogador) e série "melhor de 3 / 5" escolhida pelo anfitrião, com campeão anunciado
 - [x] Sair da sala na hora (lobby e partida), sem esperar os 10 s de reconexão; o servidor encerra a conexão de quem sai
 - [x] Proteção contra abuso: limite de mensagens por conexão (40/s, corta quem insiste) e de conexões por IP no Worker (por instância)
