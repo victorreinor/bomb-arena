@@ -2,25 +2,37 @@ import { FLAME_TICKS, TILE, tileAt, wrap, type Bomb, type GameState } from "@bom
 import type { AmbientSource, Effects } from "./effects";
 import { drawFlames } from "./fire";
 import { ITEM_COL } from "./items";
-import { TILE_PX, type Sprites } from "./sprites";
+import { TILE_COL, TILE_PX, drawPetSprite, type Sprites } from "./sprites";
 
 export const SCALE = 3;
 
 const FACE_ROW = { down: 0, up: 1, left: 2, right: 3 } as const;
+/** how far a rider sits above the ground, and the top of a pet's hop, in sprite pixels */
+const RIDE_HEIGHT = 6;
+const JUMP_HEIGHT = 12;
+/** a dizzy bomber turns round and round */
+const SPIN = ["down", "left", "up", "right"] as const;
 
 export function canvasSize(state: GameState) {
   return { width: state.width * TILE_PX * SCALE, height: state.height * TILE_PX * SCALE };
 }
 
 /** The floor and blocks only change when a soft block burns, so they are drawn once into an offscreen canvas. */
-const board = { canvas: null as HTMLCanvasElement | null, tiles: [] as number[], sprites: null as Sprites | null };
+const board = {
+  canvas: null as HTMLCanvasElement | null,
+  tiles: [] as number[],
+  /** the array last drawn: snapshots reuse it while the board doesn't change, so this usually short-circuits */
+  source: null as readonly number[] | null,
+  sprites: null as Sprites | null,
+};
 
 function boardImage(state: GameState, sprites: Sprites): HTMLCanvasElement {
   const unchanged =
     board.canvas &&
     board.sprites === sprites &&
-    board.tiles.length === state.tiles.length &&
-    state.tiles.every((t, i) => t === board.tiles[i]);
+    (board.source === state.tiles ||
+      (board.tiles.length === state.tiles.length && state.tiles.every((t, i) => t === board.tiles[i])));
+  board.source = state.tiles;
   if (unchanged) return board.canvas!;
 
   const canvas = board.canvas ?? document.createElement("canvas");
@@ -31,7 +43,14 @@ function boardImage(state: GameState, sprites: Sprites): HTMLCanvasElement {
     for (let x = 0; x < state.width; x++) {
       const t = tileAt(state, x, y);
       // floor right under a block gets the shadowed variant
-      const col = t === TILE.HARD ? 2 : t === TILE.SOFT ? 3 : tileAt(state, x, y - 1) !== TILE.EMPTY ? 1 : 0;
+      const col =
+        t === TILE.HARD
+          ? TILE_COL.hard
+          : t === TILE.SOFT
+            ? TILE_COL.soft
+            : tileAt(state, x, y - 1) !== TILE.EMPTY
+              ? TILE_COL.floorShadow
+              : TILE_COL.floor;
       g.drawImage(sprites.tiles, col * TILE_PX, 0, TILE_PX, TILE_PX, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX);
     }
   }
@@ -75,7 +94,7 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, sprites:
       if (Math.abs(dy) > state.height / 2) dy -= Math.sign(dy) * state.height;
       x = wrap(b.x + dx * t, state.width);
       y = wrap(b.y + dy * t, state.height);
-      z = Math.sin(t * Math.PI) * 15;
+      z = Math.sin(t * Math.PI) * Math.min(15, 5 + (Math.abs(dx) + Math.abs(dy)) * 3.5); // a bounce is a small hop
     }
     return { px: x * TILE_PX, py: y * TILE_PX, z };
   };
@@ -124,14 +143,40 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, sprites:
 
   const players = [...state.players].filter((p) => p.alive).sort((a, b) => a.y - b.y);
   for (const p of players) {
-    const col = p.moving ? 1 + (Math.floor(timeMs / 120) % 2) : 0;
+    const step = p.moving ? Math.floor(timeMs / 120) % 2 : 0;
+    const col = p.moving ? 1 + step : 0;
+    const z = p.jump ? Math.sin(Math.min(1, p.jump.ticks / p.jump.total) * Math.PI) * JUMP_HEIGHT : 0;
     const sx = Math.round(p.x * TILE_PX - 8);
-    const sy = Math.round(p.y * TILE_PX - 11);
+    const sy = Math.round(p.y * TILE_PX - 11 - z - (p.pet ? RIDE_HEIGHT : 0));
+    const facing = p.stunned > 0 ? SPIN[Math.floor(timeMs / 90) % 4] : p.facing;
 
+    if (z > 0) {
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.beginPath();
+      ctx.ellipse(p.x * TILE_PX, p.y * TILE_PX + 5, 6 - z * 0.15, 2.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.save();
     if (p.invuln > 0 && Math.floor(timeMs / 70) % 2 === 0) ctx.globalAlpha = 0.35;
-    cell(sprites.bombers[p.color], col, FACE_ROW[p.facing], sx, sy);
+    if (p.pet) drawPetSprite(ctx, sprites.pets, p.pet.kind, facing, step, sx, Math.round(p.y * TILE_PX - 9 - z));
+    cell(sprites.bombers[p.color], col, FACE_ROW[facing], sx, sy);
     ctx.restore();
+
+    if (p.stunned > 0) {
+      // three little stars circling the head
+      for (let k = 0; k < 3; k++) {
+        const a = timeMs / 160 + (k * Math.PI * 2) / 3;
+        const x = Math.round(sx + 8 + Math.cos(a) * 7);
+        const y = Math.round(sy - 1 + Math.sin(a) * 2.5);
+        ctx.fillStyle = "#ffd23a";
+        ctx.fillRect(x - 1, y, 3, 1);
+        ctx.fillRect(x, y - 1, 1, 3);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+
+    if (p.pet && p.pet.dashTicks > 0) ambient.push({ kind: "dash", x: p.x * TILE_PX, y: p.y * TILE_PX + 4, dir: p.facing });
 
     if (p.vest) ambient.push({ kind: "vest", x: sx + 8, y: sy + 9 });
     if (p.invuln > 0) ambient.push({ kind: "invuln", x: sx + 8, y: sy + 9 });
@@ -151,12 +196,32 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, sprites:
     }
   }
 
+  // revenge ghosts float on the outer wall, see-through, facing the arena
+  for (const p of state.players) {
+    if (p.alive || !p.ghost) continue;
+    const bob = Math.sin(timeMs / 260 + p.color) * 1.5;
+    const sx = Math.round(p.x * TILE_PX - 8);
+    const sy = Math.round(p.y * TILE_PX - 10 + bob);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = "rgba(150,90,255,0.35)";
+    ctx.beginPath();
+    ctx.arc(p.x * TILE_PX, p.y * TILE_PX - 2 + bob, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    cell(sprites.bombers[p.color], 0, FACE_ROW[p.facing], sx, sy);
+    ctx.restore();
+    ambient.push({ kind: "curse", x: p.x * TILE_PX, y: p.y * TILE_PX + 4 });
+  }
+
   // carried bombs ride above the carrier's head
   for (const b of carried) {
     const carrier = state.players.find((p) => p.id === b.held);
     if (!carrier?.alive) continue;
     const x = Math.round(carrier.x * TILE_PX - 8);
-    const y = Math.round(carrier.y * TILE_PX - 11) - 11 - Math.abs(Math.sin(timeMs / 140)) * 1.5;
+    const y = Math.round(carrier.y * TILE_PX - 11) - 11 - (carrier.pet ? RIDE_HEIGHT : 0) - Math.abs(Math.sin(timeMs / 140)) * 1.5;
     drawBomb(b, x, y, 0);
   }
 

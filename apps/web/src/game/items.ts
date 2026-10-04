@@ -1,4 +1,4 @@
-import { POWERUP_KINDS, type DiseaseKind, type PowerUpKind } from "@bomberman/engine";
+import { POWERUP_KINDS, type DiseaseKind, type PetKind, type PowerUpKind } from "@bomberman/engine";
 
 /** Column of each power-up in powerups.png. */
 export const ITEM_COL = Object.fromEntries(POWERUP_KINDS.map((kind, i) => [kind, i])) as Record<PowerUpKind, number>;
@@ -19,6 +19,15 @@ export const ITEM_INFO: Record<PowerUpKind, { name: string; desc: string; color:
   skull: { name: "Caveira", desc: "Maldição aleatória por 15 s; passa para quem você encostar. Cuidado!", color: "#b36bff" },
   line: { name: "Bomba em linha", desc: "Uso único: sua próxima bomba coloca todas as bombas livres em fila à sua frente.", color: "#ff9a1e" },
   power: { name: "Bomba de poder", desc: "A primeira bomba de cada leva tem alcance máximo.", color: "#ff3b30" },
+  egg: { name: "Ovo", desc: "Choca um pet aleatório para você montar. Montado, você deixa os próximos ovos no chão.", color: "#7ad68a" },
+};
+
+/** The mounts: name, what their power (pet key) does, and their colour (row in pets.png = PET_KINDS). */
+export const PET_INFO: Record<PetKind, { name: string; desc: string; color: string }> = {
+  runner: { name: "Corredor", desc: "Dispara em alta velocidade até bater em algo.", color: "#4cc04c" },
+  jumper: { name: "Saltador", desc: "Pula 2 casas por cima de bloco ou bomba; no ar o fogo não pega.", color: "#ff7ab8" },
+  pusher: { name: "Empurrador", desc: "Empurra o bloco de tijolo da frente uma casa.", color: "#f2c230" },
+  kicker: { name: "Chutador", desc: "Chute forte: a bomba da frente vai longe e rápido.", color: "#4a8cff" },
 };
 
 export const DISEASE_NAME: Record<DiseaseKind, string> = {

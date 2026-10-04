@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { MAX_MEMBERS, isValidRoomCode, normalizeRoomCode } from "@bomberman/engine";
+import { MAX_MEMBERS, isValidRoomCode, normalizeRoomCode, type BotLevel } from "@bomberman/engine";
 import { savedName, saveName } from "../config";
 import { audio } from "../game/audio";
+import { BOT_LEVEL_OPTIONS } from "../game/botLevels";
 import { CapacityPicker, NameField } from "./fields";
 
 interface Props {
@@ -9,7 +10,8 @@ interface Props {
   error: string | null;
   onCreate: (name: string, capacity: number) => void;
   onJoin: (name: string, code: string) => void;
-  onLocal: () => void;
+  /** offline play: bots of that level against you, or null for two people on one keyboard */
+  onLocal: (bots: BotLevel | null) => void;
 }
 
 export function Home({ initialCode, error, onCreate, onJoin, onLocal }: Props) {
@@ -91,7 +93,17 @@ export function Home({ initialCode, error, onCreate, onJoin, onLocal }: Props) {
         </form>
       </div>
 
-      <button className="link" onClick={onLocal}>Modo local (2 jogadores no mesmo teclado)</button>
+      <div className="row">
+        <span className="practice">
+          Treinar contra bots:
+          {BOT_LEVEL_OPTIONS.map((o) => (
+            <button key={o.value} className="link" onClick={() => onLocal(o.value)}>
+              {o.label}
+            </button>
+          ))}
+        </span>
+        <button className="link" onClick={() => onLocal(null)}>Modo local (2 jogadores no mesmo teclado)</button>
+      </div>
     </div>
   );
 }

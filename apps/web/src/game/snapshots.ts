@@ -1,4 +1,4 @@
-import { TICK_MS, type GameState } from "@bomberman/engine";
+import { TICK_MS, fromSnapshot, type GameSnapshot, type GameState, type Tile } from "@bomberman/engine";
 
 /** how many ticks behind the newest snapshot we render, to ride out network jitter */
 const DELAY_TICKS = 2;
@@ -14,18 +14,24 @@ export interface Sample {
  * The state `alpha` of the way from `a` to `b` (consecutive ticks): players walk smoothly,
  * kicked bombs glide and thrown ones keep a smooth arc; everything else snaps to the nearer state.
  */
+/** A timed animation (a hop, a flight) carries on between two states only if its clock moved on: a restart (a bounce) snaps. */
+const carriesOn = (from: { ticks: number } | null, to: { ticks: number } | null) => !!from && !!to && to.ticks > from.ticks;
+
 export function lerpState(a: GameState, b: GameState, alpha: number): GameState {
   const lerp = (from: number, to: number) => from + (to - from) * alpha;
   const discrete = alpha < 0.5 ? a : b;
   const players = b.players.map((pb) => {
     const pa = a.players.find((p) => p.id === pb.id) ?? pb;
-    return { ...pb, x: lerp(pa.x, pb.x), y: lerp(pa.y, pb.y) };
+    const jump = carriesOn(pa.jump, pb.jump) ? { ...pb.jump!, ticks: lerp(pa.jump!.ticks, pb.jump!.ticks) } : pb.jump;
+    return { ...pb, x: lerp(pa.x, pb.x), y: lerp(pa.y, pb.y), jump };
   });
   const bombs = discrete.bombs.map((bomb) => {
     const other = (discrete === a ? b : a).bombs.find((o) => o.id === bomb.id);
     if (!other || bomb.held || other.held) return bomb;
     const [from, to] = discrete === a ? [bomb, other] : [other, bomb];
-    if (from.flight && to.flight) return { ...bomb, flight: { ...bomb.flight!, ticks: lerp(from.flight.ticks, to.flight.ticks) } };
+    if (carriesOn(from.flight, to.flight)) {
+      return { ...bomb, flight: { ...bomb.flight!, ticks: lerp(from.flight!.ticks, to.flight!.ticks) } };
+    }
     if (from.flight || to.flight) return bomb;
     return { ...bomb, x: lerp(from.x, to.x), y: lerp(from.y, to.y) };
   });
@@ -41,13 +47,19 @@ export class SnapshotBuffer {
   private play = 0;
   private lastAt = 0;
   private drained = -1;
+  /** the board as last received: snapshots only carry tiles when they change */
+  private tiles: Tile[] | null = null;
 
-  push(round: number, resultsIn: number, game: GameState, now: number) {
+  push(round: number, resultsIn: number, snap: GameSnapshot, now: number) {
     if (round !== this.round) {
       this.round = round;
       this.snaps = [];
       this.drained = -1;
+      this.tiles = null;
     }
+    if (snap.tiles) this.tiles = snap.tiles;
+    if (!this.tiles) return; // can't draw a board we haven't seen yet
+    const game = fromSnapshot(snap, this.tiles);
     this.resultsIn = resultsIn;
     const newest = this.snaps.at(-1);
     if (newest && game.tick <= newest.tick) return;
@@ -64,6 +76,7 @@ export class SnapshotBuffer {
     this.round = -1;
     this.resultsIn = -1;
     this.drained = -1;
+    this.tiles = null;
   }
 
   /**

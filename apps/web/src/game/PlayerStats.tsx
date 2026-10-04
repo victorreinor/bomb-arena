@@ -1,7 +1,7 @@
 import { ABILITY_FIELDS, type AbilityKind, type Player } from "@bomberman/engine";
 import { COLOR_CSS } from "./colors";
-import { ItemIcon } from "./ItemIcon";
-import { DISEASE_NAME } from "./items";
+import { ItemIcon, PetIcon } from "./ItemIcon";
+import { DISEASE_NAME, PET_INFO } from "./items";
 
 const ABILITIES = Object.entries(ABILITY_FIELDS) as [AbilityKind, (typeof ABILITY_FIELDS)[AbilityKind]][];
 
@@ -12,6 +12,12 @@ export function PlayerStats({ p }: { p: Player }) {
       <span title="Bombas">💣{p.bombsMax}</span>
       <span title="Alcance">🔥{p.range}</span>
       <span title="Velocidade">👟{p.speedLevel}</span>
+      {p.pet && (
+        <span className="pet-badge" title={`${PET_INFO[p.pet.kind].name}: ${PET_INFO[p.pet.kind].desc}`}>
+          <PetIcon kind={p.pet.kind} size={18} />
+          {PET_INFO[p.pet.kind].name}
+        </span>
+      )}
       {ABILITIES.filter(([, key]) => p[key]).map(([kind]) => (
         <ItemIcon key={kind} kind={kind} size={18} />
       ))}
@@ -35,6 +41,7 @@ export function HudPlayer({ p, label }: { p: Player; label: string }) {
     <div className={`hud-player${p.alive ? "" : " dead"}`}>
       <span className="hud-chip" style={{ background: COLOR_CSS[p.color] }} />
       <span>{label}</span>
+      {!p.alive && p.ghost && <span title="Fantasma: joga bombas da borda">👻</span>}
       <PlayerStats p={p} />
     </div>
   );

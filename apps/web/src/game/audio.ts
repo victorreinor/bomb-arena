@@ -17,10 +17,21 @@ export type SfxName =
   | "lift"
   | "throw"
   | "shield"
-  | "skull";
+  | "skull"
+  | "mount"
+  | "petLost"
+  | "dash"
+  | "jump"
+  | "push"
+  | "haunt"
+  | "hurry"
+  | "thud"
+  | "bonk";
 import { readPref, writePref } from "../config";
 
-export type TrackName = "menu" | "battle";
+export type TrackName = "menu" | "battle" | "battle2" | "hurry";
+export const CHANNELS = ["music", "sfx"] as const;
+export type Channel = (typeof CHANNELS)[number];
 
 const midiToHz = (m: number) => 440 * 2 ** ((m - 69) / 12);
 
@@ -62,9 +73,36 @@ const BATTLE = {
   ] as Bar[],
   /** bass note offsets (semitones above the bar root) on each eighth note */
   bassPattern: [0, 0, 0, 12, 0, 1, 0, 12],
+  transpose: 0,
 };
 
-const TRACKS: Record<TrackName, { bpm: number; gain: number; melody: Bar[] }> = { menu: MENU, battle: BATTLE };
+/** Second battle theme: E minor, syncopated riff over Em - C - D - B (the major B keeps it tense). */
+const BATTLE2 = {
+  bpm: 160,
+  gain: 0.18,
+  roots: [40, 36, 38, 35, 40, 36, 38, 35],
+  melody: [
+    [76, _, _, 76, 79, _, 76, _, 83, _, 81, _, 79, _, 76, _],
+    [72, _, _, 72, 76, _, 72, _, 79, _, 77, _, 76, _, 72, _],
+    [74, _, _, 74, 78, _, 74, _, 81, _, 79, _, 78, _, 74, _],
+    [75, _, _, 75, 78, _, 75, _, 83, _, 81, _, 78, _, 75, 71],
+    [83, _, 81, _, 79, _, 76, _, 79, _, 81, _, 83, _, _, _],
+    [84, _, 83, _, 79, _, 76, _, 79, _, 76, _, 72, _, _, _],
+    [81, _, 79, _, 78, _, 74, _, 78, _, 79, _, 81, _, _, _],
+    [83, _, _, _, 78, _, 75, _, 71, _, 75, _, 78, _, 83, _],
+  ] as Bar[],
+  bassPattern: [0, 12, 0, 7, 0, 12, 10, 7],
+  transpose: 0,
+};
+
+/** Sudden death: the first battle theme, faster and a minor third higher. */
+const HURRY = { ...BATTLE, bpm: 204, gain: 0.2, transpose: 3 };
+
+type BattleTrack = typeof BATTLE;
+const BATTLE_TRACKS: Record<Exclude<TrackName, "menu">, BattleTrack> = { battle: BATTLE, battle2: BATTLE2, hurry: HURRY };
+
+
+const TRACKS: Record<TrackName, { bpm: number; gain: number; melody: Bar[] }> = { menu: MENU, ...BATTLE_TRACKS };
 const stepSeconds = (track: TrackName) => 60 / TRACKS[track].bpm / 4;
 
 const LOOKAHEAD_S = 0.25;
@@ -85,14 +123,19 @@ class AudioEngine {
   private timer: ReturnType<typeof setInterval> | null = null;
   private nextTime = 0;
   private step = 0;
-  musicMuted = false;
-  sfxMuted = false;
+  /** per channel: muted, and a 0..1 volume applied on top */
+  muted: Record<Channel, boolean> = { music: false, sfx: false };
+  volume: Record<Channel, number> = { music: 1, sfx: 1 };
 
   constructor() {
     const legacy = readPref("muted") === "1"; // old single mute button
-    this.musicMuted = readPref("musicMuted") === "1" || legacy;
-    this.sfxMuted = readPref("sfxMuted") === "1" || legacy;
+    for (const ch of CHANNELS) {
+      this.muted[ch] = readPref(`${ch}Muted`) === "1" || legacy;
+      this.volume[ch] = Number(readPref(`${ch}Volume`) ?? 1);
+    }
   }
+
+  private level = (ch: Channel) => (this.muted[ch] ? 0 : this.volume[ch]);
 
   private ensure(): AudioContext | null {
     if (this.ctx) return this.ctx;
@@ -116,10 +159,10 @@ class AudioEngine {
     safety.curve = safetyCurve;
     this.master.connect(safetyIn).connect(safety).connect(ctx.destination);
     this.musicSwitch = ctx.createGain();
-    this.musicSwitch.gain.value = this.musicMuted ? 0 : 1;
+    this.musicSwitch.gain.value = this.level("music");
     this.musicSwitch.connect(this.master);
     this.sfxSwitch = ctx.createGain();
-    this.sfxSwitch.gain.value = this.sfxMuted ? 0 : 1;
+    this.sfxSwitch.gain.value = this.level("sfx");
     this.sfxSwitch.connect(this.master);
     // explosions go through a soft clipper: much louder and grittier, never above full scale
     this.boomBus = ctx.createGain();
@@ -165,20 +208,28 @@ class AudioEngine {
     if (this.track && !this.timer) this.startScheduler();
   }
 
-  setMusicMuted(muted: boolean) {
-    this.musicMuted = muted;
-    writePref("musicMuted", muted ? "1" : "0");
-    if (this.ctx) this.musicSwitch.gain.setTargetAtTime(muted ? 0 : 1, this.ctx.currentTime, 0.02);
+  setMuted(ch: Channel, muted: boolean) {
+    this.muted[ch] = muted;
+    writePref(`${ch}Muted`, muted ? "1" : "0");
+    this.applyLevel(ch);
   }
 
-  setSfxMuted(muted: boolean) {
-    this.sfxMuted = muted;
-    writePref("sfxMuted", muted ? "1" : "0");
-    if (this.ctx) this.sfxSwitch.gain.setTargetAtTime(muted ? 0 : 1, this.ctx.currentTime, 0.02);
+  setVolume(ch: Channel, volume: number) {
+    this.volume[ch] = Math.max(0, Math.min(1, volume));
+    writePref(`${ch}Volume`, String(this.volume[ch]));
+    this.applyLevel(ch);
+  }
+
+  private applyLevel(ch: Channel) {
+    if (!this.ctx) return;
+    const node = ch === "music" ? this.musicSwitch : this.sfxSwitch;
+    node.gain.setTargetAtTime(this.level(ch), this.ctx.currentTime, 0.02);
   }
 
   // ------------------------------------------------------------------ music
-  playMusic(track: TrackName) {
+  /** Switch to `track` (no-op if already playing), or stop the music with null. */
+  playMusic(track: TrackName | null) {
+    if (track === null) return this.stopMusic();
     if (this.track === track && this.timer) return;
     this.stopMusic();
     this.track = track;
@@ -219,7 +270,7 @@ class AudioEngine {
 
   private playStep(track: TrackName, step: number, t: number, dur: number) {
     if (track === "menu") this.menuStep(step, t, dur);
-    else this.battleStep(step, t, dur);
+    else this.battleStep(BATTLE_TRACKS[track], step, t, dur);
   }
 
   private menuStep(step: number, t: number, dur: number) {
@@ -241,22 +292,22 @@ class AudioEngine {
     if (i % 4 === 2) this.noiseHit(t, 0.025, 8000, 0.1, this.musicBus, "highpass");
   }
 
-  private battleStep(step: number, t: number, dur: number) {
+  private battleStep(track: BattleTrack, step: number, t: number, dur: number) {
     const bar = Math.floor(step / 16);
     const i = step % 16;
-    const root = BATTLE.roots[bar];
-    const lastBar = bar === BATTLE.melody.length - 1;
+    const root = track.roots[bar] + track.transpose;
+    const lastBar = bar === track.melody.length - 1;
 
     // relentless eighth-note bass
     if (i % 2 === 0) {
-      const note = root + BATTLE.bassPattern[i / 2];
+      const note = root + track.bassPattern[i / 2];
       this.tone("sawtooth", midiToHz(note), t, dur * 1.7, 0.85, this.bassBus);
     }
 
     // two slightly detuned square voices: thick and uneasy
-    const lead = BATTLE.melody[bar][i];
+    const lead = track.melody[bar][i];
     if (lead !== null) {
-      const f = midiToHz(lead);
+      const f = midiToHz(lead + track.transpose);
       this.tone("square", f, t, dur * 1.6, 0.34, this.musicBus);
       this.tone("square", f * 1.006, t, dur * 1.6, 0.26, this.musicBus);
     }
@@ -286,7 +337,7 @@ class AudioEngine {
     const rate = 44100;
     const offline = new OfflineAudioContext(1, Math.ceil(seconds * rate), rate);
     const engine = new AudioEngine();
-    engine.musicMuted = engine.sfxMuted = false; // measure the sound itself, not the user's preferences
+    engine.muted = { music: false, sfx: false }; // measure the sound itself, not the user's preferences
     engine.setup(offline);
     engine.playSfx(name);
     return offline.startRendering();
@@ -298,7 +349,7 @@ class AudioEngine {
     const rate = 44100;
     const offline = new OfflineAudioContext(1, Math.ceil(bars * 16 * stepDur * rate) + rate, rate);
     const engine = new AudioEngine();
-    engine.musicMuted = engine.sfxMuted = false; // measure the sound itself, not the user's preferences
+    engine.muted = { music: false, sfx: false }; // measure the sound itself, not the user's preferences
     engine.setup(offline);
     engine.musicBus.gain.value = TRACKS[track].gain;
     for (let s = 0; s < bars * 16; s++) engine.playStep(track, s, s * stepDur, stepDur);
@@ -308,7 +359,7 @@ class AudioEngine {
   // ----------------------------------------------------------- sound effects
   sfx(name: SfxName, delaySeconds = 0) {
     const ctx = this.ensure();
-    if (!ctx || this.sfxMuted) return;
+    if (!ctx || this.muted.sfx) return;
     if (ctx.state === "suspended") void ctx.resume();
     this.playSfx(name, delaySeconds);
   }
@@ -365,6 +416,49 @@ class AudioEngine {
         this.slide("sawtooth", 260, 90, t, 0.55, 0.4, bus);
         this.tone("square", 98, t + 0.05, 0.4, 0.35, bus);
         this.tone("square", 92.5, t + 0.3, 0.45, 0.35, bus);
+        break;
+      case "mount":
+        [523, 659, 784, 1047].forEach((f, i) => this.tone("triangle", f, t + i * 0.05, 0.12, 0.6, bus));
+        this.slide("sine", 900, 1500, t + 0.2, 0.1, 0.3, bus); // happy chirp
+        break;
+      case "petLost":
+        this.slide("sine", 1100, 320, t, 0.35, 0.5, bus); // startled squeak as it runs off
+        this.slide("square", 700, 200, t + 0.05, 0.25, 0.18, bus);
+        this.noiseHit(t, 0.1, 3000, 0.3, bus, "highpass");
+        break;
+      case "dash":
+        this.noiseHit(t, 0.35, 400, 0.5, bus, "bandpass", 3000);
+        this.slide("sawtooth", 140, 420, t, 0.2, 0.25, bus);
+        break;
+      case "jump":
+        this.slide("sine", 220, 760, t, 0.18, 0.6, bus); // boing
+        this.slide("square", 330, 900, t, 0.12, 0.15, bus);
+        break;
+      case "push":
+        this.noiseHit(t, 0.18, 700, 0.7, bus, "lowpass", 250); // scrape of brick on stone
+        this.slide("sine", 95, 60, t, 0.15, 0.7, bus);
+        break;
+      case "bonk":
+        // a bomb bouncing off a head: hollow knock, then a dizzy twinkle
+        this.noiseHit(t, 0.05, 1200, 0.7, bus, "bandpass", 600);
+        this.slide("square", 520, 180, t, 0.12, 0.45, bus);
+        [1568, 1319, 1568, 1319].forEach((f, i) => this.tone("triangle", f, t + 0.12 + i * 0.07, 0.06, 0.25, bus));
+        break;
+      case "haunt":
+        // ghostly wobble: two slightly detuned voices gliding down
+        this.slide("triangle", 660, 330, t, 0.7, 0.35, bus);
+        this.slide("triangle", 672, 318, t, 0.7, 0.3, bus);
+        break;
+      case "hurry":
+        // alarm: three rising two-tone beeps
+        for (let k = 0; k < 3; k++) {
+          this.tone("square", 880, t + k * 0.32, 0.13, 0.45, bus);
+          this.tone("square", 1175, t + k * 0.32 + 0.15, 0.13, 0.45, bus);
+        }
+        break;
+      case "thud":
+        this.noiseHit(t, 0.12, 700, 0.8, this.boomBus, "lowpass", 150); // a stone block slamming down
+        this.slide("sine", 110, 40, t, 0.14, 0.9, this.boomBus);
         break;
       case "win":
         [523, 659, 784, 1047, 784, 1047].forEach((f, i) => this.tone("square", f, t + i * 0.11, i === 5 ? 0.4 : 0.1, 0.4, bus));

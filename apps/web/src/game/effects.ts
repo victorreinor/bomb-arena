@@ -1,9 +1,10 @@
-import { DIR_VEC, type Dir, type PowerUpKind } from "@bomberman/engine";
+import { DIR_VEC, type Dir, type PetKind, type PowerUpKind } from "@bomberman/engine";
 import { COLOR_CSS } from "./colors";
 import type { GameEvent } from "./events";
 import { drawFireball, drawGlow } from "./fire";
-import { ITEM_INFO } from "./items";
-import { TILE_PX as T, type Sprites } from "./sprites";
+import { ITEM_INFO, PET_INFO } from "./items";
+import { settings } from "./settings";
+import { TILE_PX as T, drawPetSprite, type Sprites } from "./sprites";
 
 /** All positions and sizes below are in sprite pixels (one tile = T). */
 const MAX_PARTICLES = 500;
@@ -47,6 +48,14 @@ interface Death extends Timed {
   color: number;
 }
 
+/** A lost mount bolting away from its rider. */
+interface Runaway extends Timed {
+  x: number;
+  y: number;
+  kind: PetKind;
+  dir: Dir;
+}
+
 const DEATH_BLINK_S = 0.4;
 const DEATH_TOTAL_S = 1.3;
 
@@ -67,7 +76,7 @@ function prune<V extends Timed>(list: V[], dt: number) {
 
 /** Something that should shed particles every frame while it exists (in sprite pixels). */
 export interface AmbientSource {
-  kind: "slide" | "flight" | "power" | "remote" | "vest" | "invuln" | "curse";
+  kind: "slide" | "flight" | "power" | "remote" | "vest" | "invuln" | "curse" | "dash";
   x: number;
   y: number;
   /** direction of travel for sliding bombs */
@@ -82,6 +91,7 @@ const AMBIENT_RATE: Record<AmbientSource["kind"], number> = {
   vest: 24,
   invuln: 50,
   curse: 16,
+  dash: 60,
 };
 
 interface BurstOptions {
@@ -107,6 +117,7 @@ export class Effects {
   private glows: Blob[] = [];
   private fireballs: Blob[] = [];
   private deaths: Death[] = [];
+  private runaways: Runaway[] = [];
   private shake = 0;
   private flash = 0;
   private lastNow = 0;
@@ -118,6 +129,7 @@ export class Effects {
     this.glows.length = 0;
     this.fireballs.length = 0;
     this.deaths.length = 0;
+    this.runaways.length = 0;
     this.shake = 0;
     this.flash = 0;
   }
@@ -157,6 +169,30 @@ export class Effects {
           break;
         case "itemDrop":
           this.itemDrop(e.x, e.y, e.kind);
+          break;
+        case "mount":
+          this.mount(e.x, e.y, e.pet);
+          break;
+        case "petLost":
+          this.petLost(e.x, e.y, e.pet, e.facing);
+          break;
+        case "petPower":
+          this.petPower(e.x, e.y, e.pet, e.dir);
+          break;
+        case "petLand":
+          this.petLand(e.x, e.y);
+          break;
+        case "stun":
+          this.stun(e.x, e.y);
+          break;
+        case "haunt":
+          this.haunt(e.x, e.y);
+          break;
+        case "blockFall":
+          for (const c of e.cells) this.blockFall(c.x, c.y);
+          break;
+        case "hurry":
+          this.jolt(1, 0.25);
           break;
       }
     }
@@ -221,6 +257,26 @@ export class Effects {
     }
   }
 
+  /** Bits of brick or stone thrown up and falling back down. */
+  private debris(cx: number, cy: number, count: number, colors: readonly string[], o: { speed?: [number, number]; lift?: number; life?: [number, number]; size?: [number, number]; gravity?: number } = {}) {
+    this.burst(cx, cy, count, colors, {
+      kind: "debris",
+      jitter: 4,
+      speed: o.speed ?? [20, 50],
+      bias: { x: 0, y: -(o.lift ?? 40) },
+      life: o.life ?? [0.3, 0.6],
+      size: o.size ?? [1.2, 2],
+      gravity: o.gravity ?? 240,
+      drag: 0.6,
+    });
+  }
+
+  /** Something heavy hitting the floor: a dusty ring and a puff cloud. */
+  private thump(cx: number, cy: number, radius: number, puffs: number) {
+    this.ring(cx, cy, 0.32, radius, "#d8cfb4");
+    this.puffs(cx, cy, puffs, "#8a8274", 24, 7);
+  }
+
   private ring(x: number, y: number, life: number, radius: number, color: string) {
     this.rings.push({ x, y, age: 0, life, radius, color });
   }
@@ -231,6 +287,7 @@ export class Effects {
 
   /** Screen shake (and optionally a white flash); the strongest recent hit wins. */
   private jolt(shake: number, flash = 0) {
+    if (settings.reduceMotion) return; // particles stay, the screen holds still
     this.shake = Math.max(this.shake, shake);
     this.flash = Math.max(this.flash, flash);
   }
@@ -281,16 +338,7 @@ export class Effects {
     }
 
     for (const b of e.blocks) {
-      this.burst((b.x + 0.5) * T, (b.y + 0.5) * T, 9, DEBRIS_COLORS, {
-        kind: "debris",
-        jitter: 4,
-        speed: [25, 90],
-        bias: { x: 0, y: -40 },
-        life: [0.5, 1],
-        size: [1.5, 3],
-        gravity: 220,
-        drag: 0.6,
-      });
+      this.debris((b.x + 0.5) * T, (b.y + 0.5) * T, 9, DEBRIS_COLORS, { speed: [25, 90], life: [0.5, 1], size: [1.5, 3], gravity: 220 });
     }
 
     const size = Math.min(1, e.flames.length / 14);
@@ -352,9 +400,8 @@ export class Effects {
   private land(tx: number, ty: number, power: boolean) {
     const cx = (tx + 0.5) * T;
     const cy = (ty + 0.5) * T + 4;
-    this.ring(cx, cy, 0.35, power ? T * 2.4 : T * 1.5, "#d8cfb4");
-    this.puffs(cx, cy, power ? 14 : 9, "#8a8274", 28, 8);
-    this.burst(cx, cy, 8, ["#9a9486"], { kind: "debris", jitter: 4, speed: [20, 45], bias: { x: 0, y: -55 }, life: [0.35, 0.7], size: [1.2, 2.2], gravity: 260, drag: 0.5 });
+    this.thump(cx, cy, power ? T * 2.4 : T * 1.5, power ? 14 : 9);
+    this.debris(cx, cy, 8, ["#9a9486"], { speed: [20, 45], lift: 55, life: [0.35, 0.7], size: [1.2, 2.2], gravity: 260 });
     this.jolt(power ? 3.2 : 2);
   }
 
@@ -396,6 +443,90 @@ export class Effects {
     this.jolt(1.6);
   }
 
+  private mount(x: number, y: number, pet: PetKind) {
+    const cx = x * T;
+    const cy = y * T;
+    const { color } = PET_INFO[pet];
+    this.ring(cx, cy, 0.45, T * 1.7, color);
+    this.glow(cx, cy, 0.35, T * 1.4);
+    this.burst(cx, cy, 22, [color, "#ffffff", "#ffe14a"], { speed: [25, 80], life: [0.4, 0.9], size: [1.2, 2.2], gravity: -40 });
+    this.puffs(cx, cy + 5, 6, "#9a9aa8", 18, 8);
+    this.jolt(1);
+  }
+
+  private petLost(x: number, y: number, pet: PetKind, facing: Dir) {
+    const cx = x * T;
+    const cy = y * T;
+    // it bolts away from where the rider was heading, sideways when that is up or down
+    const dir: Dir = facing === "left" ? "right" : facing === "right" ? "left" : Math.random() < 0.5 ? "left" : "right";
+    this.runaways.push({ x: cx, y: cy, kind: pet, dir, age: 0, life: 0.9 });
+    this.ring(cx, cy, 0.4, T * 1.6, "#ffffff");
+    this.puffs(cx, cy, 10, "#b8b8c8", 22, 14);
+    this.burst(cx, cy, 14, [PET_INFO[pet].color, "#ffffff"], { speed: [30, 90], life: [0.3, 0.6] });
+    this.jolt(2.2, 0.1);
+  }
+
+  private petPower(x: number, y: number, pet: PetKind, dir: Dir) {
+    const cx = x * T;
+    const cy = y * T;
+    const v = DIR_VEC[dir];
+    const { color } = PET_INFO[pet];
+    switch (pet) {
+      case "runner":
+        this.ring(cx - v.dx * 6, cy - v.dy * 6, 0.3, T * 1.3, color);
+        this.puffs(cx - v.dx * 8, cy - v.dy * 8 + 4, 8, "#9a9aa8", 16, 8);
+        this.burst(cx, cy, 10, [color, "#ffffff"], { speed: [30, 70], life: [0.2, 0.4], bias: { x: -v.dx * 60, y: -v.dy * 60 } });
+        this.jolt(1.2);
+        break;
+      case "jumper":
+        this.ring(cx, cy + 4, 0.3, T * 1.4, color);
+        this.puffs(cx, cy + 5, 8, "#9a9aa8", 20, 6);
+        break;
+      case "pusher": {
+        // dust and grit where the brick scraped into its new place
+        const bx = (Math.floor(x) + v.dx * 2 + 0.5) * T;
+        const by = (Math.floor(y) + v.dy * 2 + 0.5) * T;
+        this.puffs(bx - v.dx * 8, by - v.dy * 8 + 4, 9, "#a08a6a", 18, 10);
+        this.debris(bx - v.dx * 8, by - v.dy * 8, 8, DEBRIS_COLORS, { lift: 30, gravity: 200 });
+        this.jolt(1.6);
+        break;
+      }
+      case "kicker":
+        this.ring(cx + v.dx * 10, cy + v.dy * 10, 0.3, T * 1.4, color);
+        this.burst(cx + v.dx * 8, cy + v.dy * 8, 12, [color, "#ffffff", "#ffd23a"], { speed: [40, 110], life: [0.2, 0.45], bias: { x: v.dx * 50, y: v.dy * 50 } });
+        this.jolt(1.8);
+        break;
+    }
+  }
+
+  private blockFall(tx: number, ty: number) {
+    const cx = (tx + 0.5) * T;
+    const cy = (ty + 0.5) * T;
+    this.ring(cx, cy + 4, 0.3, T * 1.2, "#c8c8d8");
+    this.puffs(cx, cy + 6, 6, "#8a8a99", 20, 6);
+    this.debris(cx, cy + 4, 6, ["#9aa0b8", "#6a6f88"]);
+    this.jolt(1.6);
+  }
+
+  private haunt(x: number, y: number) {
+    const cx = x * T;
+    const cy = y * T;
+    this.ring(cx, cy, 0.6, T * 1.8, "#b36bff");
+    this.puffs(cx, cy, 14, "#6b2a9a", 18, 20);
+    this.burst(cx, cy, 12, ["#b36bff", "#ffffff"], { speed: [20, 60], life: [0.4, 0.9], gravity: -30 });
+  }
+
+  private petLand(x: number, y: number) {
+    this.thump(x * T, y * T + 5, T * 1.3, 8);
+    this.jolt(1.2);
+  }
+
+  /** a bomb bounced off this head: a spray of stars */
+  private stun(x: number, y: number) {
+    this.burst(x * T, y * T - 12, 10, ["#ffd23a", "#ffffff"], { speed: [30, 70], life: [0.25, 0.5], gravity: 60 });
+    this.jolt(0.8);
+  }
+
   /** Continuous particles for things that are moving or glowing right now (call every rendered frame). */
   ambient(sources: AmbientSource[]) {
     if (this.dt === 0) return;
@@ -430,6 +561,12 @@ export class Effects {
           case "curse":
             this.puffs(src.x + rand(-4, 4), src.y - 8, 1, pick(["#6b2a9a", "#2f7a3a"]), 6, 20);
             break;
+          case "dash": {
+            const v = DIR_VEC[src.dir ?? "right"];
+            if (Math.random() < 0.6) this.puffs(src.x - v.dx * 7, src.y - v.dy * 7, 1, "#9a9aa8", 10, 6);
+            else this.add({ kind: "spark", x: src.x - v.dx * 6 + rand(-3, 3), y: src.y - v.dy * 6 - 4 + rand(-3, 3), vx: -v.dx * rand(40, 90), vy: -v.dy * rand(40, 90), life: rand(0.15, 0.3), size: rand(1, 1.6), color: pick(["#ffffff", "#d8f8d8"]), drag: 2 });
+            break;
+          }
         }
       }
     }
@@ -456,6 +593,7 @@ export class Effects {
     prune(this.glows, dt);
     prune(this.fireballs, dt);
     prune(this.deaths, dt);
+    prune(this.runaways, dt);
 
     this.shake *= Math.exp(-9 * dt);
     if (this.shake < 0.05) this.shake = 0;
@@ -525,6 +663,7 @@ export class Effects {
     ctx.restore();
 
     for (const d of this.deaths) this.drawDeath(ctx, sprites, d);
+    for (const r of this.runaways) this.drawRunaway(ctx, sprites, r);
 
     if (this.flash > 0.01) {
       ctx.save();
@@ -533,6 +672,18 @@ export class Effects {
       ctx.fillRect(-16, -16, width + 32, height + 32);
       ctx.restore();
     }
+  }
+
+  /** The lost mount hops away in a hurry, blinking and fading. */
+  private drawRunaway(ctx: CanvasRenderingContext2D, sprites: Sprites, r: Runaway) {
+    const t = r.age / r.life;
+    const v = DIR_VEC[r.dir];
+    ctx.save();
+    ctx.globalAlpha = (1 - t) * (Math.floor(r.age / 0.06) % 2 === 0 ? 1 : 0.6);
+    const x = r.x + v.dx * 46 * t - 8;
+    const y = r.y - 16 - Math.abs(Math.sin(t * Math.PI * 3)) * 6;
+    drawPetSprite(ctx, sprites.pets, r.kind, r.dir, Math.floor(r.age / 0.08) % 2, x, y);
+    ctx.restore();
   }
 
   /** The bomber blinks, then spins up and away while fading. */

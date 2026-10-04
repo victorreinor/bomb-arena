@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { MAX_MEMBERS, randomRoomCode } from "@bomberman/engine";
+import { MAX_MEMBERS, randomRoomCode, type BotLevel } from "@bomberman/engine";
 import { LocalGame } from "./game/LocalGame";
 import { SoundToggle } from "./game/SoundToggle";
 import { useRoom, type RoomError } from "./net/useRoom";
@@ -9,7 +9,7 @@ import { OnlineGame } from "./screens/OnlineGame";
 
 type Route =
   | { kind: "home" }
-  | { kind: "local" }
+  | { kind: "local"; bots: BotLevel | null }
   | { kind: "room"; code: string; name: string; create: boolean; capacity: number };
 
 function setUrlCode(code: string | null) {
@@ -29,8 +29,13 @@ function RoomScreen({ code, name, create, capacity, onLeave, onFatal }: {
 }) {
   const { status, room, me, buffer, send } = useRoom({ code, name, create, capacity, onFatal });
   if (!room) return <div className="screen"><p className="notice">Conectando…</p></div>;
-  if (room.phase === "playing") return <OnlineGame room={room} me={me} buffer={buffer} send={send} />;
-  return <Lobby room={room} me={me} reconnecting={status === "reconnecting"} send={send} onLeave={onLeave} />;
+  // tell the room we're going (no reconnect grace), then close the connection by leaving the screen
+  const leave = () => {
+    send({ t: "leave" });
+    onLeave();
+  };
+  if (room.phase === "playing") return <OnlineGame room={room} me={me} buffer={buffer} send={send} onLeave={leave} />;
+  return <Lobby room={room} me={me} reconnecting={status === "reconnecting"} send={send} onLeave={leave} />;
 }
 
 export function App() {
@@ -75,7 +80,7 @@ function Screens() {
     [],
   );
 
-  if (route.kind === "local") return <LocalGame />;
+  if (route.kind === "local") return <LocalGame bots={route.bots} />;
   if (route.kind === "room") {
     return (
       <RoomScreen
@@ -95,7 +100,7 @@ function Screens() {
       error={error}
       onCreate={(name, capacity) => enter(name, randomRoomCode(), true, capacity)}
       onJoin={(name, code) => enter(name, code, false)}
-      onLocal={() => setRoute({ kind: "local" })}
+      onLocal={(bots) => setRoute({ kind: "local", bots })}
     />
   );
 }

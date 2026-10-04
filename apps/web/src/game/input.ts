@@ -1,4 +1,7 @@
-import type { Input } from "@bomberman/engine";
+import { BUTTONS, DIR_VEC, type Button, type Dir, type Input } from "@bomberman/engine";
+
+const DIRS: Dir[] = ["up", "down", "left", "right"];
+const isButton = (key: Dir | Button): key is Button => (BUTTONS as readonly string[]).includes(key);
 
 export interface KeyBindings {
   up: string;
@@ -8,30 +11,28 @@ export interface KeyBindings {
   bomb: string;
   /** throw / lift / punch / detonate */
   action: string;
+  /** the mount's power */
+  pet: string;
 }
 
 export const PLAYER_KEYS: KeyBindings[] = [
-  { up: "KeyW", down: "KeyS", left: "KeyA", right: "KeyD", bomb: "Space", action: "ShiftLeft" },
-  { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", bomb: "Enter", action: "ShiftRight" },
+  { up: "KeyW", down: "KeyS", left: "KeyA", right: "KeyD", bomb: "Space", action: "ShiftLeft", pet: "KeyE" },
+  { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", bomb: "Enter", action: "ShiftRight", pet: "Slash" },
 ];
 
-type DirKey = "up" | "down" | "left" | "right";
+const noPresses = (): Record<Button, boolean> => ({ bomb: false, action: false, pet: false });
 
-/** Tracks held keys; the most recently pressed direction wins, like on a real d-pad. */
+/** Tracks held keys; the most recently pressed direction wins, like on a real d-pad. Buttons are one-shot. */
 export class Keyboard {
-  private stacks: DirKey[][];
-  private bombQueued: boolean[];
-  private actionQueued: boolean[];
-  private lookup = new Map<string, { player: number; action: DirKey | "bomb" | "action" }>();
+  private stacks: Dir[][];
+  private queued: Record<Button, boolean>[];
+  private lookup = new Map<string, { player: number; key: Dir | Button }>();
 
   constructor(private bindings: KeyBindings[]) {
     this.stacks = bindings.map(() => []);
-    this.bombQueued = bindings.map(() => false);
-    this.actionQueued = bindings.map(() => false);
+    this.queued = bindings.map(noPresses);
     bindings.forEach((b, player) => {
-      for (const action of ["up", "down", "left", "right", "bomb", "action"] as const) {
-        this.lookup.set(b[action], { player, action });
-      }
+      for (const key of [...DIRS, ...BUTTONS]) this.lookup.set(b[key], { player, key });
     });
   }
 
@@ -55,29 +56,21 @@ export class Keyboard {
     if (!hit) return;
     e.preventDefault();
     if (e.repeat) return;
-    if (hit.action === "bomb") this.bombQueued[hit.player] = true;
-    else if (hit.action === "action") this.actionQueued[hit.player] = true;
-    else this.stacks[hit.player].push(hit.action);
+    if (isButton(hit.key)) this.queued[hit.player][hit.key] = true;
+    else this.stacks[hit.player].push(hit.key);
   };
 
   private onUp = (e: KeyboardEvent) => {
     const hit = this.lookup.get(e.code);
-    if (!hit || hit.action === "bomb" || hit.action === "action") return;
-    this.stacks[hit.player] = this.stacks[hit.player].filter((d) => d !== hit.action);
+    if (!hit || isButton(hit.key)) return;
+    this.stacks[hit.player] = this.stacks[hit.player].filter((d) => d !== hit.key);
   };
 
-  /** Read the input for one simulation tick (consumes the queued bomb press). */
+  /** Read the input for one simulation tick (consumes the queued button presses). */
   poll(player: number): Input {
     const dir = this.stacks[player].at(-1);
-    const bomb = this.bombQueued[player];
-    const action = this.actionQueued[player];
-    this.bombQueued[player] = false;
-    this.actionQueued[player] = false;
-    return {
-      dx: dir === "left" ? -1 : dir === "right" ? 1 : 0,
-      dy: dir === "up" ? -1 : dir === "down" ? 1 : 0,
-      bomb,
-      action,
-    };
+    const presses = this.queued[player];
+    this.queued[player] = noPresses();
+    return { ...(dir ? { dx: DIR_VEC[dir].dx, dy: DIR_VEC[dir].dy } : { dx: 0, dy: 0 }), ...presses };
   }
 }

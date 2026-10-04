@@ -1,4 +1,4 @@
-import { ABILITY_FIELDS, TILE, type AbilityKind, type Dir, type GameState, type Player, type PowerUpKind } from "@bomberman/engine";
+import { ABILITY_FIELDS, TILE, borderRing, fallOrder, type AbilityKind, type Dir, type GameState, type PetKind, type Player, type PowerUpKind } from "@bomberman/engine";
 
 export type GameEvent =
   | { type: "bombPlaced"; bombs: { x: number; y: number; power: boolean; remote: boolean }[] }
@@ -18,6 +18,14 @@ export type GameEvent =
   | { type: "itemDrop"; x: number; y: number; kind: PowerUpKind }
   | { type: "shield"; x: number; y: number }
   | { type: "infected"; id: string; x: number; y: number }
+  | { type: "mount"; x: number; y: number; pet: PetKind }
+  | { type: "petLost"; x: number; y: number; pet: PetKind; facing: Dir }
+  | { type: "petPower"; x: number; y: number; pet: PetKind; dir: Dir }
+  | { type: "petLand"; x: number; y: number }
+  | { type: "stun"; x: number; y: number }
+  | { type: "haunt"; x: number; y: number }
+  | { type: "hurry" }
+  | { type: "blockFall"; cells: { x: number; y: number }[] }
   | { type: "finish"; winner: string | null };
 
 /** Which (good) item was just picked up, judged by what improved on the player; null if nothing did. */
@@ -79,13 +87,33 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
     if (!before) continue;
     if (before.alive && !p.alive) {
       events.push({ type: "death", x: before.x, y: before.y, color: p.color });
+      if (p.ghost) {
+        const tile = borderRing(next.width, next.height)[p.ghost.pos];
+        events.push({ type: "haunt", x: tile.x + 0.5, y: tile.y + 0.5 });
+      }
       continue;
     }
     if (!p.alive) continue;
+    if (p.pet && !before.pet) events.push({ type: "mount", x: p.x, y: p.y, pet: p.pet.kind });
+    if (before.pet && !p.pet) events.push({ type: "petLost", x: p.x, y: p.y, pet: before.pet.kind, facing: p.facing });
+    if (p.pet && before.pet && p.pet.cooldown > before.pet.cooldown) {
+      events.push({ type: "petPower", x: p.x, y: p.y, pet: p.pet.kind, dir: p.facing });
+    }
+    if (before.jump && !p.jump) events.push({ type: "petLand", x: p.x, y: p.y });
+    if (p.stunned > before.stunned) events.push({ type: "stun", x: p.x, y: p.y });
     if (before.vest && !p.vest) events.push({ type: "shield", x: p.x, y: p.y });
     const kind = pickedKind(before, p);
     if (p.disease && !before.disease) events.push({ type: "infected", id: p.id, x: p.x, y: p.y });
     else if (kind) events.push({ type: "pickup", id: p.id, x: p.x, y: p.y, kind });
+  }
+
+  if (prev.timeLeft !== null && prev.timeLeft > 0 && next.timeLeft === 0) events.push({ type: "hurry" });
+  if (next.fallen > prev.fallen) {
+    const cells = fallOrder(next.width, next.height)
+      .slice(prev.fallen, next.fallen)
+      .filter((i) => prev.tiles[i] !== TILE.HARD && next.tiles[i] === TILE.HARD)
+      .map((i) => ({ x: i % next.width, y: Math.floor(i / next.width) }));
+    if (cells.length > 0) events.push({ type: "blockFall", cells });
   }
 
   if (prev.phase === "playing" && next.phase === "finished") events.push({ type: "finish", winner: next.winner });
