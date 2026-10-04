@@ -10,6 +10,7 @@ class Client {
   ws!: WebSocket;
   room: RoomView | null = null;
   lastState: Extract<ServerMsg, { t: "state" }> | null = null;
+  states: Extract<ServerMsg, { t: "state" }>[] = [];
   errors: string[] = [];
   closed = false;
   id = "";
@@ -26,7 +27,10 @@ class Client {
       this.ws.onmessage = (e) => {
         const msg = JSON.parse(String(e.data)) as ServerMsg;
         if (msg.t === "room") this.room = msg.room;
-        else if (msg.t === "state") this.lastState = msg;
+        else if (msg.t === "state") {
+          this.lastState = msg;
+          this.states.push(msg);
+        }
         else if (msg.t === "error") this.errors.push(msg.code);
         else if (msg.t === "welcome") this.id = msg.id;
       };
@@ -157,6 +161,39 @@ await until("duo playing", () => h.room?.phase === "playing");
 await until("duo snapshot", () => h.lastState !== null);
 check("3-player match starts with all three in the game", h.lastState!.game.players.length === 3);
 
-for (const cl of [a, b, c, d, e1, ghost, dup, h, i2, j]) cl.ws?.close();
+// lean snapshots: the board comes with the first state, then only when it changes; never the RNG
+const lean = new Client("Lena");
+const leanRoom = randomRoomCode();
+await lean.connect(leanRoom, true, 2);
+const states = lean.states;
+await until("lean room", () => lean.room !== null);
+lean.send({ t: "addBot" });
+await until("bot added", () => lean.room!.members.some((m) => m.bot));
+check("host can add a bot", lean.room!.members.length === 2);
+lean.send({ t: "start" });
+await until("lean states", () => states.length > 20);
+check("first snapshot carries the board", Array.isArray(states[0].game.tiles));
+check("later snapshots skip an unchanged board", states.slice(1, 10).some((s) => s.game.tiles === undefined));
+check("snapshots never carry the RNG", states.every((s) => !("rng" in s.game)));
+// watch the whole interval: a bot can walk out, drop a bomb and be back on its starting spot
+const botPositions = new Set<string>();
+const botBombs = new Set<number>();
+for (let i = 0; i < 30; i++) {
+  const bot = lean.lastState!.game.players.find((p) => p.id === "bot-1")!;
+  botPositions.add(`${bot.x.toFixed(2)},${bot.y.toFixed(2)}`);
+  for (const b of lean.lastState!.game.bombs) if (b.owner === "bot-1") botBombs.add(b.id);
+  await sleep(50);
+}
+check(`the bot plays on its own (${botPositions.size} positions, ${botBombs.size} bombs)`, botPositions.size > 1 || botBombs.size > 0);
+
+// leaving is immediate: the other player sees them gone without the reconnect grace
+lean.send({ t: "leave" });
+await sleep(300);
+const watcher = new Client("Walt");
+await watcher.connect(leanRoom);
+await until("room gone or empty", () => watcher.errors.length > 0 || watcher.room !== null);
+check("after the last human leaves, the room (and its bots) is gone", watcher.errors[0] === "not_found");
+
+for (const cl of [a, b, c, d, e1, ghost, dup, h, i2, j, lean, watcher]) cl.ws?.close();
 console.log(failed === 0 ? "\nAll e2e checks passed" : `\n${failed} check(s) failed`);
 process.exit(failed === 0 ? 0 : 1);

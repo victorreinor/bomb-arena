@@ -8,7 +8,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { COLOR_CSS } from "../apps/web/src/game/colors";
-import { POWERUP_KINDS, type PowerUpKind } from "../packages/engine/src";
+import { PET_INFO } from "../apps/web/src/game/items";
+import { PET_SHEET_COLS } from "../apps/web/src/game/sprites";
+import { PET_KINDS, POWERUP_KINDS, type PowerUpKind } from "../packages/engine/src";
 import { Img, encodePng, fromAscii, hex, type RGBA } from "./png";
 
 const OUT = join(import.meta.dir, "../apps/web/public/sprites");
@@ -164,6 +166,10 @@ const ICONS: Record<PowerUpKind, { bg: string; rows: string[] }> = {
     bg: "#c9602a",
     rows: ["........", "Y..Y..Y.", "KK.KK.KK", "KK.KK.KK", "........", "WWWWWWWW", "........", "........"],
   },
+  egg: {
+    bg: "#2f8a5a",
+    rows: ["...KK...", "..KWWK..", ".KWRWWK.", ".KWWWBK.", "KWWWWWWK", "KWBWWRWK", ".KWWWWK.", "..KKKK.."],
+  },
   power: {
     bg: "#a82a2a",
     rows: [".....Y..", "....N...", "..RRRR..", ".RRWRRR.", "RRWRRRRR", "RRRRRRRR", ".RRRRRR.", "..RRRR.."],
@@ -298,3 +304,77 @@ COLOR_CSS.forEach((c, i) => {
   sheet.blit(emoteFrame(hex(c), "sad", 1), T * 3, 0);
   save(`bomber-emotes-${i}.png`, sheet);
 });
+
+// -------------------------------------------------------------------- pets
+
+
+// An original long-eared critter. C body, L light belly/ears, F feet, W eye shine, R nose.
+const PET_EARS = [
+  "................",
+  ".KK..........KK.",
+  "KCCK........KCCK",
+  "KCLK........KLCK",
+  "KCLK........KLCK",
+  ".KCK........KCK.",
+  "..KCKKKKKKKKCK..",
+  ".KCCCCCCCCCCCCK.",
+];
+const PET_DOWN = [
+  ...PET_EARS,
+  "KCCCCCCCCCCCCCCK",
+  "KCCWKCCCCCCWKCCK",
+  "KCCKKCCCCCCKKCCK",
+  "KCCCCCCRRCCCCCCK",
+  ".KCCCLLLLLLCCCK.",
+  "..KCCLLLLLLCCK..",
+];
+const PET_UP = [
+  ...PET_EARS,
+  "KCCCCCCCCCCCCCCK",
+  "KCCCCCCCCCCCCCCK",
+  "KCCCCCCCCCCCCCCK",
+  "KCCCCCCLLCCCCCCK",
+  ".KCCCCLLLLCCCCK.",
+  "..KCCCCCCCCCCK..",
+];
+const PET_RIGHT = [
+  "................",
+  "....KK.KK.......",
+  "...KCCKCCK......",
+  "...KCLKCLK......",
+  "....KCKKCK......",
+  "....KCCCCKK.....",
+  "...KCCCCCCCK....",
+  "..KCCCCCCCCCKK..",
+  "..KCCCCCCCCWKCK.",
+  "..KCCCCCCCCKKCCK",
+  "..KCCCCCCCCCCRRK",
+  "...KCCLLLLCCCCK.",
+  "..LKCLLLLLLCCK..",
+  ".LLKCLLLLLLCK...",
+];
+const PET_FEET = [
+  ["..KFFK....KFFK..", "..KKK......KKK.."],
+  ["...KFFK..KFFK...", "...KKK....KKK..."],
+];
+
+function petFrame(color: RGBA, body: string[], feet: string[]): Img {
+  return fromAscii([...body, ...feet], {
+    K: hex("#15151f"),
+    C: color,
+    L: lighten(color, 0.5),
+    F: shade(color, 0.6),
+    W: hex("#ffffff"),
+    R: hex("#ff7a9a"),
+  });
+}
+
+/** pets.png: one row per PET_KINDS; columns down0, down1, right0, right1, up0, up1 (left = mirrored right). */
+const pets = new Img(T * PET_SHEET_COLS, T * PET_KINDS.length);
+PET_KINDS.forEach((kind, row) => {
+  const color = hex(PET_INFO[kind].color);
+  [PET_DOWN, PET_RIGHT, PET_UP].forEach((body, view) => {
+    PET_FEET.forEach((feet, frame) => pets.blit(petFrame(color, body, feet), (view * 2 + frame) * T, row * T));
+  });
+});
+save("pets.png", pets);
