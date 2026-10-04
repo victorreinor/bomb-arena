@@ -73,7 +73,7 @@ O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja 
 
 ## Armadilhas conhecidas
 
-- Os snapshots não trazem `rng` nem `nextBombId`, e o tabuleiro (`tiles`) só vem quando muda. Para o cliente que fala o protocolo 2 (`v=2` na conexão), jogadores e bombas vêm só com o que mudou (`changes`), completos uma vez por segundo. `fromSnapshot` remonta o estado com o último tabuleiro e o snapshot anterior. Cliente sem `v` recebe tudo completo, como antes.
+- Os snapshots não trazem `rng` nem `nextBombId`, e o tabuleiro (`tiles` e o chão especial, `floor`) só vem quando muda. Para o cliente que fala o protocolo 2 (`v=2` na conexão), jogadores e bombas vêm só com o que mudou (`changes`), completos uma vez por segundo. `fromSnapshot` remonta o estado com o último tabuleiro e o snapshot anterior. Cliente sem `v` recebe tudo completo, como antes.
 - Os `acks` (`[seq, tick]` por jogador) só vêm quando mudam, e o cliente os acumula em `SnapshotBuffer.acks`. O `seq` começa em `Date.now()` para nunca ficar abaixo do de uma aba anterior.
 - O Durable Object é criado fora da América do Sul (a Cloudflare não os hospeda lá), então a ida e volta a partir do Brasil leva ~140 ms. Por isso existem a predição e a reserva adaptável. Não "conserte" isso trocando de região.
 - `bombAt` só devolve bombas que bloqueiam a casa: ignora as minas enterradas. Para saber se há qualquer bomba no chão (para não pôr outra em cima, por exemplo), use `groundBombAt`.
@@ -89,6 +89,7 @@ O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja 
 |---|---|
 | Regras, física, explosões, itens, pets | `packages/engine/src/game.ts` (números em `constants.ts`) |
 | Mapas | `packages/engine/src/maps.ts` + `apps/web/src/game/mapInfo.ts` |
+| Chão especial (esteira, gelo, portal, lava) e caixotes | `packages/engine/src/game.ts` (seção "special floors"), `bot.ts` (`stepPath`, `dangerMap`), `apps/web/src/game/sprites.ts` (`drawFloor`), `tools/floor-art.ts` |
 | Bots e níveis | `packages/engine/src/bot.ts` (`PROFILES`) |
 | Lobby, salas, série, mensagens | `packages/engine/src/room.ts` + `protocol.ts` |
 | Loop do servidor, transmissão, limites | `apps/server/src/room.ts`, `apps/server/src/index.ts` |
@@ -100,4 +101,4 @@ O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja 
 | Controles | `apps/web/src/game/input.ts` (teclado), `controls.ts` (gamepad, touch e combinação) |
 | Telas | `apps/web/src/screens/` (`Home`, `Lobby`, `MapPicker`, `OnlineGame`) |
 | Layout da partida (computador; celular em pé e deitado), menu ⚙️, tela cheia | `apps/web/src/game/GameFrame.tsx`, `screenMode.ts`, `styles.css` (seção "phones") |
-| Arte | `tools/bomber-art.ts`, `tools/pet-art.ts`, `tools/tile-art.ts`, `tools/make-sprites.ts` |
+| Arte | `tools/bomber-art.ts`, `tools/pet-art.ts`, `tools/tile-art.ts`, `tools/floor-art.ts`, `tools/make-sprites.ts` |

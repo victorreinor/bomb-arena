@@ -28,7 +28,9 @@ Tamanho: P pequeno · M médio · G grande. 🖥️ = mexe na engine ou no proto
 - [x] Mapas para 2 jogadores (x1): Duelo (11×9, apertado) e Confronto (13×11, meio-termo), com cenários reaproveitados; com mais de 2 na sala o mapa aparece com "só 2 jogadores" e a partida não começa
 - [ ] Batalha em duplas (2 contra 2, pessoas ou bots), com fogo amigo opcional — M 🖥️
 - [x] Bombas novas, como itens: **perfurante** (permanente; a explosão atravessa os tijolos e quebra todos no alcance), **de borracha** (permanente; chutada, quica no que encontra e volta, com som e efeito próprios; para em quem estiver no caminho) e **mina** (uso único, até 3; a próxima bomba se enterra em 1 s, some para os outros, não bloqueia a passagem e explode quando um adversário pisa nela ou em 10 s; o dono a vê clarinha). Cada uma com aparência própria no `bomb.png`, ícone, legenda e testes; os bots enxergam a explosão perfurante e não veem as minas enterradas dos outros
-- [ ] Começar a Fase 5 por um mapa só: esteiras (ou teletransportes), com cenário próprio — M–G 🖥️
+- [x] Fase 5 inteira, um mapa por mecânica, cada um com cenário próprio: Linha de Montagem (esteiras), Portais, Lago Congelado (gelo), Armazém (caixotes que se empurram) e Vulcão (fendas de lava). Detalhes na seção da Fase 5
+- [ ] Bots empurrarem caixotes de propósito (hoje os tratam como parede) — P 🖥️
+- [ ] Balancear com playtests a velocidade das esteiras, o ciclo da lava (5 s) e o tempo para empurrar um caixote — P 🖥️
 - [ ] Monstros na arena, como os bichos e tanques dos mapas dos Super Bomberman do SNES: uns só atrapalham, outros soltam fogo. Opção da sala (sem / poucos / muitos) e, depois, mapas com monstros próprios. Começar por um tipo só; os tipos estão na seção "Monstros" mais abaixo — M–G 🖥️
 
 **Quando der: proteção**
@@ -121,7 +123,14 @@ Também na fila, já listados nas fases abaixo: bots usarem pets e itens especia
 - [ ] Balancear recargas e a chance do ovo com playtests
 
 ## Fase 5 — Mapas complexos
-- [ ] Esteiras · [ ] Teletransportes · [ ] Gelo · [ ] Blocos móveis · [ ] Perigos
+- [x] Esteiras (Linha de Montagem): levam quem pisa a 2 casas/s (andar contra é lento), e bombas e itens uma casa a cada meio segundo; não empurram ninguém através de parede
+- [x] Teletransportes (Portais): três pares; entrou num, sai no meio do outro; bomba chutada ou levada pela esteira também passa; ninguém põe bomba em cima de um portal
+- [x] Gelo (Lago Congelado): andando no gelo não dá para virar nem parar até bater em algo ou sair dele; parado, dá para sair em qualquer direção
+- [x] Blocos móveis (Armazém): caixotes que não queimam e seguram explosões; quem anda contra um, alinhado, por um instante, o empurra uma casa (se do outro lado estiver livre)
+- [x] Perigos (Vulcão): fendas de lava em cruz que cospem fogo juntas a cada 5 s, brilhando antes; queimam itens, detonam bombas e matam ("caiu na lava")
+- [x] Bots entendem cada uma: planejam o caminho deslizando no gelo e atravessando portais, saem da lava antes de ela explodir e, com remota em cima de esteira, só detonam se a esteira não os levar para a explosão
+- [x] Predição do próprio boneco funciona em todas (o caixote empurrado anda na tela junto com você)
+- [ ] Mais perigos (espinhos que sobem, buracos, trampolins) e as mecânicas em mapas para 2
 
 ## Monstros na arena
 Bichos controlados pelo jogo, com arte e nomes próprios (nada copiado do SNES). Morrem com uma explosão e podem soltar um item ao morrer.

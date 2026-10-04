@@ -26,21 +26,21 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 | Arquivo | Conteúdo |
 |---|---|
-| `types.ts` | `GameState`, `Player`, `Bomb`, `PowerUp`, `Input`; listas `POWERUP_KINDS`, `PET_KINDS`; `ABILITY_FIELDS` (item de habilidade → campo do jogador) |
+| `types.ts` | `GameState`, `Player`, `Bomb`, `PowerUp`, `Input`; listas `POWERUP_KINDS`, `PET_KINDS`; `ABILITY_FIELDS` (item de habilidade → campo do jogador); `TILE` (com o caixote, `CRATE`) e `FLOOR` (chão especial de cada casa: gelo, lava, esteira por direção em `BELT_DIRS`, portal por par) |
 | `constants.ts` | Todos os números ajustáveis: `TICK_RATE` 30, pavio, alcance, velocidades, pesos de drop, recargas dos pets |
-| `maps.ts` | Mapas em ASCII de qualquer tamanho (`#` pedra, `+` tijolo, `o` tijolo sorteado por `softDensity`, `.` livre, dígitos = início; as vagas são os inícios, `mapSeats`), `MAPS`, `MAP_IDS`, `SPAWN_ORDER` |
+| `maps.ts` | Mapas em ASCII de qualquer tamanho (`#` pedra, `+` tijolo, `o` tijolo sorteado por `softDensity`, `.` livre, dígitos = início; as vagas são os inícios, `mapSeats`; `=` caixote, `~` gelo, `*` lava, `^ > v <` esteira, `A`–`D` portais, cada letra duas vezes), `MAPS`, `MAP_IDS`, `SPAWN_ORDER` |
 | `game.ts` | `createGame`, `step` (um tick), `stepPlayer`, `pickUp`, bombas (perfurante, de borracha, minas: `isBuried`, `bombAt` só vê as que bloqueiam, `groundBombAt` vê também as enterradas), explosões, chute/soco/luva, quique na cabeça, pets, vingança, sudden death, ranking |
 | `room.ts` | Sala: membros, anfitrião, cor, pronto, vagas, bots, opções, série/placar, reconexão (10 s), `handleClientMessage`, `stepRoom`, `inputAcks`, `roomView` |
 | `protocol.ts` | Mensagens `ClientMsg`/`ServerMsg`, `RoomView`, `toSnapshot`/`fromSnapshot` (com as mudanças do protocolo 2), `PROTOCOL_VERSION`, códigos de sala |
-| `bot.ts` | Mapa de perigo (`dangerMap`), decisão (`botInput`), níveis em `PROFILES` |
+| `bot.ts` | Mapa de perigo (`dangerMap`, com a lava 2 s antes de explodir), decisão (`botInput`), caminhos (`explore`, que já desliza no gelo e atravessa portais, `stepPath`), níveis em `PROFILES` |
 | `rng.ts` | mulberry32 (`nextRandom`, `randomSeed`) |
 | `ratelimit.ts` | `TokenBucket` (limite de mensagens e de conexões) |
 
 ### Um tick (`step`)
 
 0. Durante a contagem "Pronto… Já!" (`tick <= goTick`), o passo para aqui: ninguém anda e o relógio espera.
-1. Cada jogador vivo roda `stepPlayer`: timers (invulnerabilidade, maldição, recarga do pet); se está no ar (salto) ou tonto, para aí; depois os botões (ação, bomba, pet) e o movimento (com deslize nas quinas). Fantasmas andam pela borda (`stepGhost`).
-2. Bombas andam (chutadas, voando, quicando; a de borracha volta quando bate), minas enterradas em que um adversário pisou (ou em que uma bomba chutada bateu) disparam, as chamas queimam, o sudden death derruba blocos.
+1. Cada jogador vivo roda `stepPlayer`: timers (invulnerabilidade, maldição, recarga do pet); se está no ar (salto) ou tonto, para aí; depois os botões (ação, bomba, pet) e o movimento (com deslize nas quinas; no gelo, sem virar enquanto desliza; andando contra um caixote, o empurrão), a esteira (`rideBelt`) e o portal (`takePortal`). Fantasmas andam pela borda (`stepGhost`).
+2. Bombas andam (chutadas, voando, quicando; a de borracha volta quando bate; pelos portais), as esteiras levam bombas e itens (a cada `BELT_CARRY_TICKS`), minas enterradas em que um adversário pisou (ou em que uma bomba chutada bateu) disparam, as chamas queimam, a lava explode quando o ciclo volta a zero (`ventCycle`), o sudden death derruba blocos.
 3. Pavios descontam; as bombas que zeram explodem em cadeia.
 4. Para quem está no chão: fogo na casa tira o pet, depois o colete, senão elimina (com o crédito para o dono da chama, `Player.death`); em seguida `pickUp` pega o item da casa.
 5. A caveira passa por contato; com um vivo ou nenhum, a partida termina.
@@ -88,7 +88,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 ### Desenho, efeitos e som
 
-- `render.ts`: escala 3x, tabuleiro com o cenário do mapa (`mapInfo(id).theme`), sombras, itens, bombas, chamas (`fire.ts`, procedurais), bonecos com pet em duas camadas (corpo atrás, cabeça na frente), poses de ação, fantasmas e efeitos.
+- `render.ts`: escala 3x, tabuleiro com o cenário do mapa (`mapInfo(id).theme`) e os chãos especiais (gelo, crateras de lava e caixotes na imagem do tabuleiro; esteiras, portais e o brilho da lava a cada quadro), sombras, itens, bombas, chamas (`fire.ts`, procedurais), bonecos com pet em duas camadas (corpo atrás, cabeça na frente), poses de ação, fantasmas e efeitos.
 - `effects.ts`: partículas, ondas de choque, tremor e clarão a partir dos eventos; "reduzir tremor e clarão" no painel ⚙️.
 - `audio.ts`: todo o som é sintetizado com Web Audio (músicas e efeitos, sem arquivos), com volume e mudo por canal salvos no navegador. `sfx.ts` traduz eventos em efeitos; `musicFor` escolhe a música pelo estado.
 - `haptics.ts`: padrões de vibração por evento (`navigator.vibrate`), com opção de desligar.
@@ -100,7 +100,8 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 | PNG | Gerado por | Formato (em `sprites.ts`) |
 |---|---|---|
-| `tiles-<tema>.png` (garden, snow, temple, factory) | `tile-art.ts` | 8 células 16x16: `TILE_SHEET` |
+| `tiles-<tema>.png` (garden, snow, temple, factory, assembly, space, ice, warehouse, volcano) | `tile-art.ts` | 8 células 16x16: `TILE_SHEET` |
+| `floor.png` | `floor-art.ts` | linha 0: `FLOOR_CELLS` (gelo, lava fria e quente, caixote) e `BELT_FRAMES` da esteira indo para a direita (girada para as outras); depois uma linha por par de portal (`PORTAL_COLORS`), `PORTAL_FRAMES` colunas |
 | `bomber-<cor>.png` | `bomber-art.ts` | 16x24, linhas `BOMBER_VIEWS`, colunas `BOMBER_FRAMES` |
 | `bomber-emotes-<cor>.png` | `bomber-art.ts` | `BOMBER_EMOTES` (pódio) |
 | `pets.png` | `pet-art.ts` | células 20x20, uma linha por `PET_KINDS`, colunas `petColumn` |
@@ -126,6 +127,13 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 2. `MAP_INFO` em `apps/web/src/game/mapInfo.ts` (nível, descrição, música, cenário). Publicar o servidor.
 
 **Novo cenário**: `TILE_THEMES` e `THEME_COLORS` em `apps/web/src/game/sprites.ts`, um `TileSet` em `tools/tile-art.ts`, `bun run sprites`.
+
+**Novo chão especial**
+1. Um código em `FLOOR` (`types.ts`) e o caractere dele em `floorCode` (`game.ts`) e na documentação de `MapDef.rows`.
+2. A regra: se mexe em quem anda, dentro de `stepPlayer` (assim a predição acerta sozinha); se mexe em bombas, itens ou no tempo, em `step`. Se depende do tempo, uma função do `tick` (como `ventCycle`) evita guardar estado.
+3. Os bots: perigo em `dangerMap`; mudança de caminho em `stepPath`.
+4. O desenho em `drawFloor` (`sprites.ts`) e `floor-art.ts`; parado vai para a imagem do tabuleiro (`stillFloor` em `render.ts`), animado é desenhado a cada quadro. Eventos e sons em `events.ts`.
+5. Testes em `packages/engine/test/floors.test.ts`, um mapa que use a mecânica e publicar o servidor.
 
 **Novo pet**: `PET_KINDS`, `PET_COOLDOWN_TICKS` e o poder em `usePet` (`game.ts`); depois `PET_INFO`, `PET_SOUND` e o desenho em `tools/pet-art.ts` (o typecheck aponta cada um).
 
