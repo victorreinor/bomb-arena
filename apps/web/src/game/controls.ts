@@ -70,10 +70,9 @@ export class TouchPad {
   }
 }
 
-/** Everything a game screen needs besides the keyboard: gamepads, touch state, and whether to show touch controls. */
+/** Everything a game screen needs besides the keyboard: gamepads and the touch controls' state. */
 export function useControls() {
   const [pads] = useState(() => new GamepadReader());
   const [touch] = useState(() => new TouchPad());
-  const [showTouch] = useState(() => typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches);
-  return { pads, touch, showTouch };
+  return { pads, touch };
 }

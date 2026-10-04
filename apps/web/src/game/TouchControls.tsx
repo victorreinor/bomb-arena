@@ -2,13 +2,8 @@ import { useEffect, useRef, type PointerEvent } from "react";
 import { fourWay, type TouchPad } from "./controls";
 import { buzz } from "./haptics";
 
-/**
- * On-screen d-pad and buttons for phones; they write into a TouchPad the game loop reads. `turned`: the page
- * is rotated a quarter turn clockwise (see GameFrame), so a finger's offset on screen is turned back for the d-pad.
- */
-export function TouchControls({ pad, turned = false }: { pad: TouchPad; turned?: boolean }) {
-  /** the d-pad's box, measured once per touch rather than on every move */
-  const box = useRef<DOMRect | null>(null);
+/** On-screen d-pad and buttons for phones; they write into a TouchPad the game loop reads. */
+export function TouchControls({ pad }: { pad: TouchPad }) {
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -21,17 +16,19 @@ export function TouchControls({ pad, turned = false }: { pad: TouchPad; turned?:
     return () => el.removeEventListener("touchstart", hold);
   }, []);
 
+  /**
+   * The finger's offset from the d-pad's centre, in the d-pad's own coordinates (offsetX/Y undo any
+   * transform, so this holds on a page turned by hand too). It is the target throughout: it captures the
+   * pointer, and the arrows let touches through.
+   */
   const steer = (e: PointerEvent<HTMLDivElement>) => {
-    const b = (box.current ??= e.currentTarget.getBoundingClientRect());
-    const x = e.clientX - (b.left + b.width / 2);
-    const y = e.clientY - (b.top + b.height / 2);
-    const dir = turned ? fourWay(y, -x, b.width * 0.12) : fourWay(x, y, b.width * 0.12);
+    const { clientWidth: w, clientHeight: h } = e.currentTarget;
+    const dir = fourWay(e.nativeEvent.offsetX - w / 2, e.nativeEvent.offsetY - h / 2, w * 0.12);
     pad.dx = dir.dx;
     pad.dy = dir.dy;
   };
   const release = () => {
     pad.dx = pad.dy = 0;
-    box.current = null;
   };
 
   const button = (kind: "bomb" | "action" | "pet", label: string) => (
@@ -55,7 +52,6 @@ export function TouchControls({ pad, turned = false }: { pad: TouchPad; turned?:
         aria-label="Direcional"
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
-          box.current = null;
           steer(e);
         }}
         onPointerMove={(e) => e.buttons > 0 && steer(e)}

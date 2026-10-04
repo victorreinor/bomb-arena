@@ -38,7 +38,7 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [sprites, setSprites] = useState<Sprites | null>(null);
   const [hud, setHud] = useState<{ game: GameState; resultsIn: number } | null>(null);
-  const { pads, touch, showTouch } = useControls();
+  const { pads, touch } = useControls();
   const sendRef = useRef(send);
   sendRef.current = send;
 
@@ -143,23 +143,24 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
     <GameFrame
       title={`Sala ${room.code}`}
       timer={game && <MatchTimer game={game} />}
-      players={game?.players.map((p) =>
-        p.id === me ? (
-          <HudPlayer key={p.id} p={p} me label={<>{nameOf(p.id)}<span className="hud-you"> (você)</span></>} />
-        ) : (
-          <HudPlayer key={p.id} p={p} label={nameOf(p.id)} />
-        ),
-      )}
+      players={game?.players.map((p) => (
+        <HudPlayer
+          key={p.id}
+          p={p}
+          me={p.id === me}
+          label={p.id === me ? <>{nameOf(p.id)}<span className="desktop-only"> (você)</span></> : nameOf(p.id)}
+        />
+      ))}
       notice={
         !playing ? (
           <p className="notice">Partida em andamento — você entra na próxima. Assistindo!</p>
-        ) : (
-          haunting && (
-            <p className="notice">
-              👻 Você virou fantasma: ande pela borda e jogue bombas para dentro com {showTouch ? "o 💣" : "Espaço ou Enter"}.
-            </p>
-          )
-        )
+        ) : haunting ? (
+          <p className="notice">
+            👻 Você virou fantasma: ande pela borda e jogue bombas para dentro com{" "}
+            <span className="desktop-only">Espaço ou Enter</span>
+            <span className="phone-only">o 💣</span>.
+          </p>
+        ) : null
       }
       canvasRef={canvasRef}
       size={game ? canvasSize(game) : null}
@@ -175,7 +176,6 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
         )
       }
       hint={<p>Mover: WASD, setas ou controle · Bomba: Espaço/Enter (A) · Ação: Shift (B) · Pet: E ou / (Y)</p>}
-      touch={showTouch}
       pad={playing ? touch : null}
       onLeave={onLeave}
     />

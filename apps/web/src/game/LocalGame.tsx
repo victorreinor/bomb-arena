@@ -80,7 +80,7 @@ export function LocalGame({ bots, onLeave }: { bots: BotLevel | null; onLeave: (
   const [hud, setHud] = useState<GameState | null>(null);
   const [sprites, setSprites] = useState<Sprites | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { pads, touch, showTouch } = useControls();
+  const { pads, touch } = useControls();
 
   useEffect(() => {
     loadSprites().then(setSprites, (e: Error) => setError(e.message));
@@ -169,7 +169,17 @@ export function LocalGame({ bots, onLeave }: { bots: BotLevel | null; onLeave: (
 
   return (
     <GameFrame
-      title={bots ? `${showTouch ? "Treino" : "Treino contra bots"} · ${BOT_LEVEL_NAMES[bots]}` : showTouch ? "Modo local" : "Bomb Arena — modo local"}
+      title={
+        bots ? (
+          <>
+            Treino<span className="desktop-only"> contra bots</span> · {BOT_LEVEL_NAMES[bots]}
+          </>
+        ) : (
+          <>
+            <span className="desktop-only">Bomb Arena — </span>modo local
+          </>
+        )
+      }
       hint={<p>{bots ? "WASD/setas, Espaço/Enter, Shift, E · ou controle." : "Dois jogadores no mesmo teclado."} R reinicia.</p>}
       timer={hud && <MatchTimer game={hud} />}
       players={hud?.players.map((p, i) => (
@@ -177,7 +187,12 @@ export function LocalGame({ bots, onLeave }: { bots: BotLevel | null; onLeave: (
           key={p.id}
           p={p}
           me={!!bots && !isBotId(p.id)}
-          label={bots || showTouch ? label(hud, p.id) : `${label(hud, p.id)} · ${KEY_HINTS[i]}`}
+          label={
+            <>
+              {label(hud, p.id)}
+              {!bots && <span className="desktop-only"> · {KEY_HINTS[i]}</span>}
+            </>
+          }
         />
       ))}
       notice={error && <p className="notice error" role="alert">Erro: {error}</p>}
@@ -188,12 +203,13 @@ export function LocalGame({ bots, onLeave }: { bots: BotLevel | null; onLeave: (
           <div className="overlay podium-overlay">
             <h2>{winner ? `${COLOR_NAMES[winner.color]} venceu!` : "Empate!"}</h2>
             <Podium entries={podium} />
-            <button onClick={restart}>{showTouch ? "Jogar de novo" : "Jogar de novo (R)"}</button>
+            <button onClick={restart}>
+              Jogar de novo<span className="desktop-only"> (R)</span>
+            </button>
           </div>
         )
       }
-      touch={showTouch}
-      pad={showTouch ? touch : null}
+      pad={touch}
       onLeave={onLeave}
     />
   );

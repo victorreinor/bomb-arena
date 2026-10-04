@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
-/** Whether the page may go full screen: Android browsers can, iPhones can't (there the layout just follows the phone). */
+/** Whether the page may go full screen: Android browsers can, iPhones can't (there the page is turned by hand). */
 export const canFullscreen = typeof document !== "undefined" && !!document.fullscreenEnabled;
 
 /** `lock` is missing from TypeScript's DOM types, as only some browsers have it. */
@@ -23,32 +23,29 @@ export async function playSideways(): Promise<boolean> {
   }
 }
 
-/** Whether the page runs as an app installed on the home screen (no browser bars). */
-export const installedQuery = "(display-mode: standalone), (display-mode: fullscreen)";
-
 export function leaveFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
 
-export function useFullscreen(): boolean {
-  const [on, setOn] = useState(() => typeof document !== "undefined" && !!document.fullscreenElement);
-  useEffect(() => {
-    const update = () => setOn(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", update);
-    return () => document.removeEventListener("fullscreenchange", update);
-  }, []);
-  return on;
-}
+/** Whether the page runs as an app installed on the home screen (no browser bars). */
+export const installedQuery = "(display-mode: standalone), (display-mode: fullscreen)";
+
+const onFullscreenChange = (notify: () => void) => {
+  document.addEventListener("fullscreenchange", notify);
+  return () => document.removeEventListener("fullscreenchange", notify);
+};
+
+export const useFullscreen = () => useSyncExternalStore(onFullscreenChange, () => !!document.fullscreenElement);
 
 /** Whether a media query matches, kept up to date (the phone turning, the app being installed). */
 export function useMedia(query: string): boolean {
-  const [matches, setMatches] = useState(() => typeof matchMedia !== "undefined" && matchMedia(query).matches);
-  useEffect(() => {
-    const list = matchMedia(query);
-    const update = () => setMatches(list.matches);
-    update();
-    list.addEventListener("change", update);
-    return () => list.removeEventListener("change", update);
-  }, [query]);
-  return matches;
+  const subscribe = useCallback(
+    (notify: () => void) => {
+      const list = matchMedia(query);
+      list.addEventListener("change", notify);
+      return () => list.removeEventListener("change", notify);
+    },
+    [query],
+  );
+  return useSyncExternalStore(subscribe, () => matchMedia(query).matches);
 }

@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { CHANNELS, audio, type Channel } from "./audio";
 import { buzz, canVibrate } from "./haptics";
 import { setHaptics, setReduceMotion, settings } from "./settings";
@@ -11,8 +11,10 @@ const LABEL: Record<Channel, { icon: string; name: string; key: string; volume: 
 /** The audio engine and the settings own the values: this re-renders after changing one. */
 const useRefresh = () => useReducer((n: number) => n + 1, 0)[1];
 
-/** A dropdown's open state; it closes on a tap outside `ref` or on Escape. */
-export function usePopover() {
+const toggleMute = (ch: Channel) => audio.setMuted(ch, !audio.muted[ch]);
+
+/** The ⚙️ button and its panel, which closes on a tap outside it or on Escape. */
+export function SettingsMenu({ className = "", label, children }: { className?: string; label: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -27,7 +29,18 @@ export function usePopover() {
       window.removeEventListener("keydown", close);
     };
   }, [open]);
-  return { open, setOpen, ref };
+  return (
+    <div className={`settings-anchor ${className}`} ref={ref}>
+      <button onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="dialog" title={label}>
+        ⚙️
+      </button>
+      {open && (
+        <div className="settings-panel" role="dialog" aria-label={label}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** One on/off switch per sound channel (music, effects). */
@@ -39,9 +52,9 @@ export function ChannelToggles() {
     return (
       <button
         key={ch}
-        className={off ? "off" : ""}
+        className={`channel${off ? " off" : ""}`}
         onClick={() => {
-          audio.setMuted(ch, !off);
+          toggleMute(ch);
           refresh();
         }}
         aria-pressed={!off}
@@ -107,14 +120,13 @@ export function SettingsFields() {
 /** Quick switches for music and sound effects, plus a panel with volumes and motion comfort. */
 export function SoundToggle() {
   const refresh = useRefresh();
-  const { open, setOpen, ref } = usePopover();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       const ch = e.code === "KeyM" ? "music" : e.code === "KeyN" ? "sfx" : null;
       if (!ch) return;
-      audio.setMuted(ch, !audio.muted[ch]);
+      toggleMute(ch);
       refresh();
     };
     window.addEventListener("keydown", onKey);
@@ -124,16 +136,9 @@ export function SoundToggle() {
   return (
     <div className="sound-controls">
       <ChannelToggles />
-      <div className="settings-anchor" ref={ref}>
-        <button onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="dialog" title="Ajustes">
-          ⚙️
-        </button>
-        {open && (
-          <div className="settings-panel" role="dialog" aria-label="Ajustes">
-            <SettingsFields />
-          </div>
-        )}
-      </div>
+      <SettingsMenu label="Ajustes">
+        <SettingsFields />
+      </SettingsMenu>
     </div>
   );
 }

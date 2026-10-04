@@ -16,7 +16,7 @@ export function PlayerStats({ p }: { p: Player }) {
       {p.pet && (
         <span className="pet-badge" title={`${PET_INFO[p.pet.kind].name}: ${PET_INFO[p.pet.kind].desc}`}>
           <PetIcon kind={p.pet.kind} size={18} />
-          <span className="pet-name">{PET_INFO[p.pet.kind].name}</span>
+          <span className="desktop-only">{PET_INFO[p.pet.kind].name}</span>
         </span>
       )}
       {ABILITIES.filter(([, key]) => p[key]).map(([kind]) => (
@@ -29,7 +29,7 @@ export function PlayerStats({ p }: { p: Player }) {
       )}
       {p.disease && (
         <span className="curse" title={`Maldição: ${DISEASE_NAME[p.disease.kind]}`}>
-          ☠ <span className="curse-name">{DISEASE_NAME[p.disease.kind]}</span>
+          ☠ <span className="desktop-only">{DISEASE_NAME[p.disease.kind]}</span>
         </span>
       )}
     </span>
