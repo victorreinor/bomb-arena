@@ -217,10 +217,10 @@ check("protocol 2: most snapshots carry changes, not players", deltaStates.filte
 check("protocol 2: players come in full at least once a second", deltaStates.filter((g) => g.players).length >= 2);
 let rebuilt: GameState | null = null;
 let rebuildOk = true;
-let lastTiles = deltaStates[0].tiles!;
+let board = { tiles: deltaStates[0].tiles!, floor: deltaStates[0].floor ?? null };
 for (const g of deltaStates) {
-  lastTiles = g.tiles ?? lastTiles;
-  const next = fromSnapshot(g, lastTiles, rebuilt);
+  if (g.tiles) board = { tiles: g.tiles, floor: g.floor ?? null };
+  const next = fromSnapshot(g, board, rebuilt);
   if (!next || (g.players && rebuilt && g.players.length !== rebuilt.players.length)) rebuildOk = false;
   rebuilt = next ?? rebuilt;
 }

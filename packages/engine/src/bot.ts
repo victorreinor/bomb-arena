@@ -1,19 +1,23 @@
-import { BOMB_FUSE_TICKS, TICK_RATE } from "./constants";
+import { BOMB_FUSE_TICKS, TICK_RATE, VENT_PERIOD_TICKS } from "./constants";
 import {
+  beltAt,
   blastCells,
   bombAt,
   bombRangeFor,
   borderRing,
   canDropBomb,
   canPlaceAt,
+  floorAt,
   isBuried,
   nearestBorderIndex,
   playerSpeed,
+  portalExit,
   solidFor,
+  ventCycle,
   wrap,
 } from "./game";
 import { nextRandom, pickRandom } from "./rng";
-import { BLAST_DIRS, DIR_VEC, TILE, emptyInput, type Bomb, type GameState, type Input, type Player } from "./types";
+import { BLAST_DIRS, DIR_VEC, FLOOR, TILE, emptyInput, type Bomb, type GameState, type Input, type Player } from "./types";
 
 /**
  * A computer opponent. Each tick it looks at the board as it understands it and decides, in order:
@@ -63,6 +67,8 @@ const PROFILES: Record<BotLevel, Profile> = {
 
 /** someone else's remote bombs can go off whenever they like: treat them as about to */
 const REMOTE_DANGER_TICKS = 20;
+/** a lava vent counts as dangerous for this long before it erupts: time enough to get off it */
+const VENT_DANGER_TICKS = 2 * TICK_RATE;
 /** bombing spots checked for an escape route per tick, nearest first */
 const MAX_SPOT_CHECKS = 6;
 /** how long a moment of panic lasts: [min, max] ticks */
@@ -85,12 +91,21 @@ const NEVER = Infinity;
 export function dangerMap(state: GameState, known: (b: Bomb) => boolean = () => true, owner: string | null = null): number[] {
   const danger = new Array<number>(state.width * state.height).fill(NEVER);
   for (const f of state.flames) danger[f.y * state.width + f.x] = 0;
+  // lava vents about to erupt (and so, any bomb lying on one)
+  const eruption = VENT_PERIOD_TICKS - ventCycle(state);
+  const onVent = (b: Bomb) => floorAt(state, b.x, b.y) === FLOOR.VENT;
+  if (state.floor && eruption <= VENT_DANGER_TICKS) {
+    state.floor.forEach((f, i) => f === FLOOR.VENT && (danger[i] = Math.min(danger[i], eruption)));
+  }
 
   const bombs = state.bombs
     .filter((b) => !b.flight && !b.held && known(b))
     .map((b) => ({
       cell: b.y * state.width + b.x,
-      time: b.remote && b.owner !== owner ? Math.min(b.ticksLeft, REMOTE_DANGER_TICKS) : b.ticksLeft,
+      time: Math.min(
+        b.remote && b.owner !== owner ? Math.min(b.ticksLeft, REMOTE_DANGER_TICKS) : b.ticksLeft,
+        onVent(b) ? eruption : NEVER,
+      ),
       cells: blastCells(state, b.x, b.y, b.range, b.pierce),
       settled: false,
     }));
@@ -238,16 +253,35 @@ function explore(state: GameState, p: Player, danger: number[], start: number, m
     for (const d of BLAST_DIRS) {
       const nx = x + d.dx;
       const ny = y + d.dy;
-      const next = ny * state.width + nx;
-      if (seen[next] || solidFor(state, p, nx, ny)) continue;
-      const arrival = (dist + 1) * ticksPerTile;
-      // the cell must not be burning when we pass, nor catch fire shortly after we arrive
-      if (danger[next] !== NEVER && danger[next] < arrival + ticksPerTile * margin) continue;
-      seen[next] = 1;
-      out.push({ cell: next, dist: dist + 1, first: dist === 0 ? next : first });
+      if (solidFor(state, p, nx, ny)) continue;
+      const path = stepPath(state, p, nx, ny, d);
+      const end = path[path.length - 1];
+      if (seen[end]) continue;
+      // no cell on the way may be burning when we pass, nor the last one catch fire shortly after we arrive
+      const burns = path.some((c, i) => danger[c] !== NEVER && danger[c] < (dist + 1 + i) * ticksPerTile + ticksPerTile * margin);
+      if (burns) continue;
+      seen[end] = 1;
+      out.push({ cell: end, dist: dist + path.length, first: dist === 0 ? ny * state.width + nx : first });
     }
   }
   return out;
+}
+
+/**
+ * The cells a step into (x, y), going `d`-wards, really takes the bot through, the last being where it
+ * comes to rest: on ice it slides on until the ice ends or something stops it, and a portal puts it out
+ * at its far end.
+ */
+function stepPath(state: GameState, p: Player, x: number, y: number, d: { dx: number; dy: number }): number[] {
+  const path = [y * state.width + x];
+  while (floorAt(state, x, y) === FLOOR.ICE && !solidFor(state, p, x + d.dx, y + d.dy)) {
+    x += d.dx;
+    y += d.dy;
+    path.push(y * state.width + x);
+  }
+  const exit = portalExit(state, path[path.length - 1]);
+  if (exit !== null) path.push(exit);
+  return path;
 }
 
 /**
@@ -326,8 +360,8 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
   }
   brain.fleeing = false;
 
-  // out of reach of its remote bombs: set them off
-  if (detonates(state, p)) return { ...emptyInput(), action: true };
+  // out of reach of its remote bombs (and not being carried into it by a belt): set them off, holding still
+  if (detonates(state, p) && danger[carriedTo(state, p, here)] === NEVER) return { ...stepTowards(p, here, width), action: true };
 
   // 2. a good spot to bomb, with an escape route afterwards: make up its mind, settle in the middle, drop
   const canBomb = canDropBomb(p);
@@ -358,6 +392,12 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
     brain.rethinkAt = state.tick + brain.profile.rethink;
   }
   return stepTowards(p, goal ? goal.first : here, width);
+}
+
+/** The cell a belt is carrying the bot towards, or the one it stands on. */
+function carriedTo(state: GameState, p: Player, here: number): number {
+  const dir = beltAt(state, Math.floor(p.x), Math.floor(p.y));
+  return dir ? here + DIR_VEC[dir].dx + DIR_VEC[dir].dy * state.width : here;
 }
 
 /** Whether the action button would now set off one of its remote bombs (rather than lift or punch a bomb at hand). */

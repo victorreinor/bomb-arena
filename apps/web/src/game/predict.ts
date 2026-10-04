@@ -1,4 +1,4 @@
-import { BUTTONS, TICK_MS, bombAt, countingDown, emptyInput, pickUp, stepPlayer, type Bomb, type GameState, type Input, type InputAck, type Player, type PowerUp } from "@bomberman/engine";
+import { BUTTONS, TICK_MS, TILE, bombAt, countingDown, emptyInput, pickUp, stepPlayer, type Bomb, type GameState, type Input, type InputAck, type Player, type PowerUp, type Tile } from "@bomberman/engine";
 import { bombsPlaced, type GameEvent } from "./events";
 import { lerpPlayer } from "./snapshots";
 
@@ -27,6 +27,8 @@ export interface Prediction {
   taken: PowerUp[];
   /** an item it is stepping onto right now (taken on the coming tick): gone the moment we draw it there */
   reaching: PowerUp[];
+  /** the board as predicted: crates where our bomber has shoved them */
+  tiles: Tile[];
 }
 
 /** A replay from one snapshot: our bomber at the last whole tick and the next, our bombs, the items we took. */
@@ -108,7 +110,7 @@ export class Predictor {
       correction = { x: before.x - was.x, y: before.y - was.y };
     }
     this.shown = { x: player.x, y: player.y, now, latest };
-    return { player, correction, bombs: r.bombs, fresh: r.fresh, taken: r.taken, reaching: r.reaching };
+    return { player, correction, bombs: r.bombs, fresh: r.fresh, taken: r.taken, reaching: r.reaching, tiles: r.tiles };
   }
 
   /** An acknowledgement of a newer input tells how far our clock is from the server's ticks. */
@@ -147,7 +149,7 @@ export class Predictor {
     advance();
     const reaching = gone().filter((u) => !taken.includes(u));
     const bombs = world.bombs.filter((b) => b.owner === this.me);
-    const replay = { player, next: me, bombs, fresh: bombs.filter((b) => b.id >= known), taken, reaching };
+    const replay = { player, next: me, bombs, fresh: bombs.filter((b) => b.id >= known), taken, reaching, tiles: world.tiles };
     this.cached = { key, latest, replay };
     return replay;
   }
@@ -223,7 +225,11 @@ export class PredictedView {
     for (const c of this.grabbed) {
       if (!got.some((u) => cell(u) === c) && !view.powerUps.some((u) => cell(u) === c)) this.grabbed.delete(c);
     }
-    return { view: { ...view, players, bombs: [...view.bombs, ...ahead], powerUps }, events };
+    // crates we shove move with us, not a round trip later (bricks and the rest still follow the playback)
+    const crate = (t: Tile) => t === TILE.CRATE;
+    const moved = view.tiles.some((t, i) => crate(t) !== crate(pred.tiles[i]));
+    const tiles = moved ? view.tiles.map((t, i) => (crate(t) || crate(pred.tiles[i]) ? pred.tiles[i] : t)) : view.tiles;
+    return { view: { ...view, players, bombs: [...view.bombs, ...ahead], powerUps, tiles }, events };
   }
 
   /** While we predict, the server's report of our own bombs and pick-ups comes after we already showed and played them. */

@@ -130,7 +130,7 @@ describe("snapshots", () => {
     expect("nextBombId" in lean).toBe(false);
     expect(lean.tiles).toBeUndefined();
     expect(toSnapshot(game, true).tiles).toEqual(game.tiles);
-    const rebuilt = fromSnapshot(lean, game.tiles)!;
+    const rebuilt = fromSnapshot(lean, game)!;
     expect(rebuilt.tiles).toBe(game.tiles);
     expect(rebuilt.players).toEqual(game.players);
     expect(JSON.stringify(lean).length).toBeLessThan(JSON.stringify(game).length - 300);
@@ -143,7 +143,7 @@ describe("snapshots", () => {
     game.tiles = game.tiles.map((t) => (t === TILE.SOFT ? TILE.EMPTY : t));
     const lists = () => structuredClone({ players: game.players, bombs: game.bombs });
     let sent = lists();
-    let known: SentLists = fromSnapshot(JSON.parse(JSON.stringify(toSnapshot(game, true))), game.tiles)!;
+    let known: SentLists = fromSnapshot(JSON.parse(JSON.stringify(toSnapshot(game, true))), game)!;
     const moves = [{ dx: 1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: 0 }];
     let bombsSeen = 0;
     for (let t = 0; t < BOMB_FUSE_TICKS + 40; t++) {
@@ -154,7 +154,7 @@ describe("snapshots", () => {
       sent = lists();
       expect(snap.players).toBeUndefined();
       expect(snap.bombs).toBeUndefined();
-      known = fromSnapshot(snap, game.tiles, known)!;
+      known = fromSnapshot(snap, game, known)!;
       expect(known.players).toEqual(game.players);
       expect(known.bombs).toEqual(game.bombs);
       bombsSeen = Math.max(bombsSeen, known.bombs.length);
@@ -174,7 +174,7 @@ describe("snapshots", () => {
     start(room);
     const game = room.game!;
     const sent = structuredClone({ players: game.players, bombs: game.bombs });
-    expect(fromSnapshot(toSnapshot(game, false, sent), game.tiles, null)).toBeNull();
+    expect(fromSnapshot(toSnapshot(game, false, sent), game, null)).toBeNull();
     const regrouped = toSnapshot(game, false, { ...sent, players: sent.players.slice(1) });
     expect([regrouped.players, regrouped.bombs, regrouped.changes]).toEqual([game.players, game.bombs, undefined]);
   });

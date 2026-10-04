@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { GRID_W, MAPS, MAX_MEMBERS, getMap, mapSeats, wrap, type MapDef } from "@bomberman/engine";
+import { FLOOR, GRID_W, MAPS, MAX_MEMBERS, floorCode, getMap, mapSeats, wrap, type MapDef } from "@bomberman/engine";
 import { ACCENT_INK } from "../game/colors";
 import { mapInfo } from "../game/mapInfo";
-import { TILE_PX, TILE_THEMES, drawTile, load, loaded, tileName, tileSheetUrl } from "../game/sprites";
+import { TILE_PX, TILE_THEMES, drawFloor, drawFloorCell, drawTile, floorSheetUrl, load, loaded, tileName, tileSheetUrl } from "../game/sprites";
 
 /** Counts shown under the preview. */
 function mapStats(map: MapDef) {
@@ -14,16 +14,20 @@ function mapStats(map: MapDef) {
 }
 
 /**
- * The map's layout drawn with its own tiles: pillars, bricks (faded: they are random each match) and the
- * four starting corners.
+ * The map's layout drawn with its own tiles: pillars, bricks (faded: they are random each match), crates,
+ * special floors and the four starting corners.
  */
 export function MapPreview({ map }: { map: MapDef }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const url = tileSheetUrl(mapInfo(map.id).theme);
   const [tiles, setTiles] = useState<HTMLImageElement | null>(() => loaded(url) ?? null);
+  const [floors, setFloors] = useState<HTMLImageElement | null>(() => loaded(floorSheetUrl) ?? null);
   useEffect(() => {
     load(url).then(setTiles, () => setTiles(null));
   }, [url]);
+  useEffect(() => {
+    load(floorSheetUrl).then(setFloors, () => setFloors(null));
+  }, []);
 
   // drawn before the first paint, so a preview sliding in never shows up blank
   useLayoutEffect(() => {
@@ -34,8 +38,11 @@ export function MapPreview({ map }: { map: MapDef }) {
     map.rows.forEach((row, y) =>
       [...row].forEach((ch, x) => {
         if (ch === "#") return drawTile(g, tiles, "hard", x, y);
-        drawTile(g, tiles, tileName("floor", "#+".includes(map.rows[y - 1]?.[x] ?? "."), x, y), x, y);
-        if (ch === "+" || ch === "o") {
+        drawTile(g, tiles, tileName("floor", "#+=".includes(map.rows[y - 1]?.[x] ?? "."), x, y), x, y);
+        const code = floorCode(ch);
+        if (floors && ch === "=") drawFloorCell(g, floors, "crate", x, y);
+        else if (floors && code !== FLOOR.PLAIN) drawFloor(g, floors, code, x, y, 0, code === FLOOR.VENT ? 0.6 : 0);
+        else if (ch === "+" || ch === "o") {
           g.globalAlpha = ch === "o" ? 0.55 : 1;
           drawTile(g, tiles, "soft", x, y);
           g.globalAlpha = 1;
@@ -50,7 +57,7 @@ export function MapPreview({ map }: { map: MapDef }) {
         }
       }),
     );
-  }, [map, tiles]);
+  }, [map, tiles, floors]);
 
   return (
     <canvas

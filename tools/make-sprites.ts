@@ -12,6 +12,7 @@ import { ACCENT, COLOR_CSS } from "../apps/web/src/game/colors";
 import { POWERUP_KINDS, type PowerUpKind } from "../packages/engine/src";
 import { bomberSheet, emoteSheet } from "./bomber-art";
 import { petSheet } from "./pet-art";
+import { floorSheet } from "./floor-art";
 import { tileSheet } from "./tile-art";
 import { BOMB_LOOKS, BOMB_PULSE_FRAMES, TILE_THEMES, type BombLook } from "../apps/web/src/game/sprites";
 import { Img, encodePng, fromAscii, hex, lighten, shade, upscale, type RGBA } from "./png";
@@ -29,6 +30,7 @@ function save(name: string, img: Img) {
 // ------------------------------------------------------------------ tiles
 
 for (const theme of TILE_THEMES) save(`tiles-${theme}.png`, tileSheet(theme));
+save("floor.png", floorSheet());
 
 // ------------------------------------------------------------------- bomb
 

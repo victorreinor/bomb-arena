@@ -37,6 +37,20 @@ function build(hard: (x: number, y: number) => boolean, { width = GRID_W, height
   return grid.map((r) => r.join(""));
 }
 
+/** `rows` with some cells swapped for other characters: [x, y, ch] each. */
+function mark(rows: string[], cells: [number, number, string][]): string[] {
+  const grid = rows.map((r) => [...r]);
+  for (const [x, y, ch] of cells) grid[y][x] = ch;
+  return grid.map((r) => r.join(""));
+}
+
+/** Every cell from (x0, y0) to (x1, y1), corners included, row by row. */
+function area(x0: number, y0: number, x1: number, y1: number): [number, number][] {
+  const cells: [number, number][] = [];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) cells.push([x, y]);
+  return cells;
+}
+
 /** A spawn point in a map's rows: the digit is its number. */
 export const isSpawn = (ch: string) => ch >= "1" && ch <= "9";
 
@@ -109,8 +123,66 @@ export const FACEOFF: MapDef = {
   softDensity: 0.7,
 };
 
-export const MAPS: MapDef[] = [CLASSIC, OPEN_FIELD, MAZE, QUADRANTS, DUEL, FACEOFF];
-export const MAP_IDS = ["classic", "open", "maze", "quadrants", "duel", "faceoff"] as const;
+/** Belts: a clockwise loop round the middle, carrying people, bombs and items along. */
+export const ASSEMBLY: MapDef = {
+  id: "assembly",
+  name: "Linha de Montagem",
+  rows: mark(build(isClassicPillar), [
+    ...area(3, 3, 10, 3).map(([x, y]) => [x, y, ">"] as [number, number, string]),
+    ...area(11, 3, 11, 8).map(([x, y]) => [x, y, "v"] as [number, number, string]),
+    ...area(4, 9, 11, 9).map(([x, y]) => [x, y, "<"] as [number, number, string]),
+    ...area(3, 4, 3, 9).map(([x, y]) => [x, y, "^"] as [number, number, string]),
+  ]),
+  softDensity: 0.7,
+};
+
+/** Portals: three pairs that link the far sides of the arena. */
+export const PORTALS: MapDef = {
+  id: "portals",
+  name: "Portais",
+  rows: mark(build(isClassicPillar), [
+    [7, 1, "A"], [7, 11, "A"],
+    [1, 5, "B"], [13, 7, "B"],
+    [5, 5, "C"], [9, 7, "C"],
+  ]),
+  softDensity: 0.7,
+};
+
+/** Ice: a frozen lake in the middle where nobody can steer or stop until something gets in the way. */
+export const LAKE: MapDef = {
+  id: "lake",
+  name: "Lago Congelado",
+  rows: mark(
+    build(isClassicPillar),
+    area(3, 3, 11, 9).filter(([x, y]) => !isClassicPillar(x, y)).map(([x, y]) => [x, y, "~"]),
+  ),
+  softDensity: 0.75,
+};
+
+/** Crates: fireproof cover that anyone can shove about. */
+export const WAREHOUSE: MapDef = {
+  id: "warehouse",
+  name: "Armazém",
+  rows: mark(build(isClassicPillar), [
+    [5, 3, "="], [9, 3, "="], [3, 5, "="], [11, 5, "="], [7, 5, "="],
+    [3, 7, "="], [11, 7, "="], [7, 7, "="], [5, 9, "="], [9, 9, "="],
+  ]),
+  softDensity: 0.55,
+};
+
+/** Lava: vents in a cross through the middle that all erupt every few seconds. */
+export const VOLCANO: MapDef = {
+  id: "volcano",
+  name: "Vulcão",
+  rows: mark(build((x, y) => (x === 4 || x === 10) && (y === 4 || y === 8)), [
+    [7, 5, "*"], [6, 6, "*"], [7, 6, "*"], [8, 6, "*"], [7, 7, "*"],
+    [7, 2, "*"], [7, 10, "*"], [2, 6, "*"], [12, 6, "*"],
+  ]),
+  softDensity: 0.6,
+};
+
+export const MAPS: MapDef[] = [CLASSIC, OPEN_FIELD, MAZE, QUADRANTS, DUEL, FACEOFF, ASSEMBLY, PORTALS, LAKE, WAREHOUSE, VOLCANO];
+export const MAP_IDS = ["classic", "open", "maze", "quadrants", "duel", "faceoff", "assembly", "portals", "lake", "warehouse", "volcano"] as const;
 export type MapId = (typeof MAP_IDS)[number];
 
 export function getMap(id: string): MapDef {

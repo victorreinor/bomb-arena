@@ -1,6 +1,8 @@
 import {
   AUTO_BOMB_INTERVAL_TICKS,
   BASE_SPEED,
+  BELT_CARRY_TICKS,
+  BELT_SPEED,
   BOMB_FUSE_TICKS,
   BOUNCE_TICKS,
   DASH_FACTOR,
@@ -29,6 +31,8 @@ import {
   PLAYER_RADIUS,
   POWERUP_DROP_CHANCE,
   POWERUP_WEIGHTS,
+  PUSH_ALIGN,
+  PUSH_TICKS,
   REMOTE_FUSE_TICKS,
   SLOW_FACTOR,
   SPEED_STEP,
@@ -37,14 +41,17 @@ import {
   STUN_TICKS,
   THROW_DISTANCE,
   TICK_RATE,
+  VENT_PERIOD_TICKS,
 } from "./constants";
 import { SPAWN_ORDER, isSpawn } from "./maps";
 import { nextRandom, pickRandom } from "./rng";
 import {
   ABILITY_FIELDS,
+  BELT_DIRS,
   BLAST_DIRS,
   DIR_VEC,
   DISEASE_KINDS,
+  FLOOR,
   PET_KINDS,
   TILE,
   dirFrom,
@@ -106,6 +113,7 @@ export function createGame(opts: CreateGameOptions): GameState {
     width,
     height,
     tiles: new Array(width * height).fill(TILE.EMPTY),
+    floor: null,
     players: [],
     bombs: [],
     flames: [],
@@ -120,6 +128,7 @@ export function createGame(opts: CreateGameOptions): GameState {
   };
 
   const spawns: { x: number; y: number }[] = [];
+  const floor = new Array<number>(width * height).fill(FLOOR.PLAIN);
   map.rows.forEach((row, y) => {
     if (row.length !== width) throw new Error(`map ${map.id}: row ${y} has wrong width`);
     [...row].forEach((ch, x) => {
@@ -127,9 +136,12 @@ export function createGame(opts: CreateGameOptions): GameState {
       if (ch === "#") state.tiles[i] = TILE.HARD;
       else if (ch === "+") state.tiles[i] = TILE.SOFT;
       else if (ch === "o") state.tiles[i] = nextRandom(state) < map.softDensity ? TILE.SOFT : TILE.EMPTY;
+      else if (ch === "=") state.tiles[i] = TILE.CRATE;
       else if (isSpawn(ch)) spawns[Number(ch) - 1] = { x, y };
+      else floor[i] = floorCode(ch);
     });
   });
+  if (floor.some((f) => f !== FLOOR.PLAIN)) state.floor = floor;
 
   players.forEach((p, i) => {
     // small test maps may lack the corner SPAWN_ORDER asks for; fall back to the n-th spawn
@@ -163,6 +175,7 @@ export function createGame(opts: CreateGameOptions): GameState {
       stunned: 0,
       lineCharges: 0,
       mineCharges: 0,
+      push: 0,
       disease: null,
       holding: null,
       diedAt: null,
@@ -238,7 +251,10 @@ export function stepPlayer(state: GameState, p: Player, input: Partial<Input> | 
   const dx = Math.sign(input?.dx ?? 0) * flip;
   const dy = Math.sign(input?.dy ?? 0) * flip;
   const dashing = (p.pet?.dashTicks ?? 0) > 0;
-  if (!dashing) p.facing = dirFrom(dx, dy) ?? p.facing;
+  const from = Math.floor(p.y) * state.width + Math.floor(p.x);
+  // on ice there's no steering once moving: the bomber slides on until something stops it or the ice ends
+  const sliding = !dashing && p.moving && floorAt(state, Math.floor(p.x), Math.floor(p.y)) === FLOOR.ICE;
+  if (!dashing && !sliding) p.facing = dirFrom(dx, dy) ?? p.facing;
 
   if (p.disease?.kind === "autoBomb" && state.tick % AUTO_BOMB_INTERVAL_TICKS === 0) placeBomb(state, p);
   if (input?.action) doAction(state, p);
@@ -252,9 +268,14 @@ export function stepPlayer(state: GameState, p: Player, input: Partial<Input> | 
     const d = DIR_VEC[p.facing];
     movePlayer(state, p, d.dx, d.dy, DASH_FACTOR);
     if (!p.moving) p.pet.dashTicks = 0;
+  } else if (sliding) {
+    const d = DIR_VEC[p.facing];
+    movePlayer(state, p, d.dx, d.dy);
   } else {
     movePlayer(state, p, dx, dy);
   }
+  rideBelt(state, p);
+  takePortal(state, p, from);
   updatePassing(state, p);
 }
 
@@ -291,8 +312,10 @@ export function step(state: GameState, inputs: Inputs = {}): void {
   }
 
   updateBombs(state);
+  carryOnBelts(state);
   triggerMines(state);
   burnFlames(state);
+  eruptVents(state);
   suddenDeath(state);
 
   for (const b of state.bombs) b.ticksLeft--;
@@ -314,7 +337,9 @@ export function step(state: GameState, inputs: Inputs = {}): void {
         p.vest = false;
         p.invuln = INVULN_TICKS;
       } else {
-        eliminate(state, p, "blast", flame.owner);
+        // a flame nobody owns came out of a lava vent
+        if (flame.owner) eliminate(state, p, "blast", flame.owner);
+        else eliminate(state, p, "lava", null);
         continue;
       }
     }
@@ -460,10 +485,16 @@ function overlapsTile(px: number, py: number, tx: number, ty: number): boolean {
   return Math.abs(px - (tx + 0.5)) < reach && Math.abs(py - (ty + 0.5)) < reach;
 }
 
-/** Whether a bomb may be laid on this tile: open floor, no bomb (not even a buried mine), no fire (a wall-passer standing in a brick can't). */
+/**
+ * Whether a bomb may be laid on this tile: open floor that isn't a portal, no bomb (not even a buried
+ * mine), no fire (a wall-passer standing in a brick can't).
+ */
 export function canPlaceAt(state: GameState, x: number, y: number): boolean {
-  return tileAt(state, x, y) === TILE.EMPTY && !groundBombAt(state, x, y) && !flameAt(state, x, y);
+  return tileAt(state, x, y) === TILE.EMPTY && !groundBombAt(state, x, y) && !flameAt(state, x, y) && !isPortal(state, x, y);
 }
+
+/** Stone and crates stop a blast, and neither burns. */
+const stopsBlast = (tile: Tile) => tile === TILE.HARD || tile === TILE.CRATE;
 
 /** A bomb as its owner's items make it; `plain` (a ghost's) leaves out remote, pierce and rubber. */
 function newBomb(state: GameState, p: Player, x: number, y: number, range: number, plain = false): Bomb {
@@ -512,8 +543,8 @@ const baseRange = (p: Player) => (p.disease?.kind === "shortRange" ? 1 : p.range
 const isPowerBomb = (p: Player) => p.powerBomb && p.bombsActive === 0 && p.disease?.kind !== "shortRange";
 
 /**
- * Cells (tile indices) a bomb at (x, y) would set on fire: stops at stone, at the first bomb and at the
- * first brick (a piercing blast goes on through bricks).
+ * Cells (tile indices) a bomb at (x, y) would set on fire: stops at stone and crates, at the first bomb
+ * and at the first brick (a piercing blast goes on through bricks).
  */
 export function blastCells(state: GameState, x: number, y: number, range: number, pierce = false): number[] {
   const cells = [y * state.width + x];
@@ -522,7 +553,7 @@ export function blastCells(state: GameState, x: number, y: number, range: number
       const cx = x + d.dx * i;
       const cy = y + d.dy * i;
       const tile = tileAt(state, cx, cy);
-      if (tile === TILE.HARD) break;
+      if (stopsBlast(tile)) break;
       cells.push(cy * state.width + cx);
       if ((tile === TILE.SOFT && !pierce) || bombAt(state, cx, cy)) break;
     }
@@ -605,7 +636,7 @@ function launchBomb(state: GameState, bomb: Bomb, dir: Dir, distance = THROW_DIS
   for (let k = distance; k < distance + state.width + state.height; k++) {
     const x = wrap(bomb.x + d.dx * k, state.width);
     const y = wrap(bomb.y + d.dy * k, state.height);
-    if ((x !== bomb.x || y !== bomb.y) && tileAt(state, x, y) === TILE.EMPTY && !groundBombAt(state, x, y)) {
+    if ((x !== bomb.x || y !== bomb.y) && slidesInto(state, x, y) && !isPortal(state, x, y)) {
       bomb.slide = null;
       bomb.flight = { toX: x, toY: y, dir, ticks: 0, total: ticks };
       return true;
@@ -745,29 +776,45 @@ function updateBombs(state: GameState) {
 
     if (b.slide && --b.slideTimer <= 0) {
       const d = DIR_VEC[b.slide];
-      const nx = b.x + d.dx;
-      const ny = b.y + d.dy;
-      const ahead = groundBombAt(state, nx, ny);
+      const ahead = groundBombAt(state, b.x + d.dx, b.y + d.dy);
       if (ahead && isBuried(ahead)) ahead.ticksLeft = 0; // ran into a mine and set it off
-      const person = state.players.some((p) => p.alive && overlapsTile(p.x, p.y, nx, ny));
-      if (person || !slidesInto(state, nx, ny)) {
+      if (!moveBomb(state, b, b.slide)) {
         // a rubber bomb bounces back off walls, bricks and bombs (stopping at people, or when boxed in)
-        const back = reverse(b.slide);
-        const bounces = b.rubber && !person && slidesInto(state, b.x - d.dx, b.y - d.dy);
-        b.slide = bounces ? back : null;
-        b.slideTimer = b.slideInterval;
-      } else {
-        b.x = nx;
-        b.y = ny;
-        b.slideTimer = b.slideInterval;
-        if (flameAt(state, nx, ny)) b.ticksLeft = 0;
+        const bounces = b.rubber && !personAt(state, b.x + d.dx, b.y + d.dy) && slidesInto(state, b.x - d.dx, b.y - d.dy);
+        b.slide = bounces ? reverse(b.slide) : null;
       }
+      b.slideTimer = b.slideInterval;
     }
   }
 }
 
 /** Whether a sliding bomb can move on into (x, y): open floor without a bomb on it. */
 const slidesInto = (state: GameState, x: number, y: number) => tileAt(state, x, y) === TILE.EMPTY && !groundBombAt(state, x, y);
+
+/** Whether anyone (alive) is standing on any part of tile (x, y). */
+const personAt = (state: GameState, x: number, y: number) => state.players.some((p) => p.alive && overlapsTile(p.x, p.y, x, y));
+
+/**
+ * Moves a lying bomb a tile `dir`-wards, out of the far end of a portal if it lands on one, and sets it off
+ * if there's fire there. False (and it stays) when the way is shut: a wall, a bomb, someone standing
+ * there, or the far end of the portal taken.
+ */
+function moveBomb(state: GameState, b: Bomb, dir: Dir): boolean {
+  const d = DIR_VEC[dir];
+  let x = b.x + d.dx;
+  let y = b.y + d.dy;
+  if (!slidesInto(state, x, y) || personAt(state, x, y)) return false;
+  const exit = portalExit(state, y * state.width + x);
+  if (exit !== null) {
+    x = exit % state.width;
+    y = Math.floor(exit / state.width);
+    if (!slidesInto(state, x, y) || personAt(state, x, y)) return false;
+  }
+  b.x = x;
+  b.y = y;
+  if (flameAt(state, x, y)) b.ticksLeft = 0;
+  return true;
+}
 
 const reverse = (d: Dir): Dir => dirFrom(-DIR_VEC[d].dx, -DIR_VEC[d].dy)!;
 
@@ -830,7 +877,7 @@ function explode(state: GameState, start: Bomb) {
         const x = bomb.x + d.dx * i;
         const y = bomb.y + d.dy * i;
         const tile = tileAt(state, x, y);
-        if (tile === TILE.HARD) break;
+        if (stopsBlast(tile)) break;
 
         const hit = state.bombs.find((o) => o.x === x && o.y === y && !o.flight && !exploded.has(o.id));
         const stops = (tile === TILE.SOFT && !bomb.pierce) || hit !== undefined;
@@ -862,6 +909,112 @@ function explode(state: GameState, start: Bomb) {
       });
     }
   }
+}
+
+// --------------------------------------------------------- special floors
+
+/** Belt codes in a map's rows, in the order of BELT_DIRS. */
+const BELT_CHARS = "^>v<";
+
+/** The floor a map character stands for (see MapDef.rows); plain for any other. */
+export function floorCode(ch: string): number {
+  if (ch === "~") return FLOOR.ICE;
+  if (ch === "*") return FLOOR.VENT;
+  if (ch.length === 1 && BELT_CHARS.includes(ch)) return FLOOR.BELT + BELT_CHARS.indexOf(ch);
+  if (ch >= "A" && ch <= "Z") return FLOOR.PORTAL + ch.charCodeAt(0) - "A".charCodeAt(0);
+  return FLOOR.PLAIN;
+}
+
+/** The floor code of cell (x, y): plain outside the arena and on maps without special floors. */
+export function floorAt(state: GameState, x: number, y: number): number {
+  if (!state.floor || x < 0 || y < 0 || x >= state.width || y >= state.height) return FLOOR.PLAIN;
+  return state.floor[y * state.width + x];
+}
+
+/** The way the belt on (x, y) runs, or null if there is none. */
+export function beltAt(state: GameState, x: number, y: number): Dir | null {
+  const i = floorAt(state, x, y) - FLOOR.BELT;
+  return i >= 0 && i < BELT_DIRS.length ? BELT_DIRS[i] : null;
+}
+
+export const isPortal = (state: GameState, x: number, y: number) => floorAt(state, x, y) >= FLOOR.PORTAL;
+
+/** Each portal cell and the one at its other end, per floor (the floor never changes during a match). */
+const portalPairs = new WeakMap<number[], Map<number, number>>();
+
+/** The cell (index) at the other end of the portal on `cell`, or null if there's no portal there. */
+export function portalExit(state: GameState, cell: number): number | null {
+  if (!state.floor) return null;
+  let pairs = portalPairs.get(state.floor);
+  if (!pairs) {
+    const ends = new Map<number, number[]>();
+    state.floor.forEach((f, i) => f >= FLOOR.PORTAL && ends.set(f, [...(ends.get(f) ?? []), i]));
+    pairs = new Map();
+    for (const [a, b] of ends.values()) {
+      if (b === undefined) continue;
+      pairs.set(a, b);
+      pairs.set(b, a);
+    }
+    portalPairs.set(state.floor, pairs);
+  }
+  return pairs.get(cell) ?? null;
+}
+
+/** Stepping onto a portal from another cell puts the bomber in the middle of its other end. */
+function takePortal(state: GameState, p: Player, from: number) {
+  const cell = Math.floor(p.y) * state.width + Math.floor(p.x);
+  const exit = cell === from ? null : portalExit(state, cell);
+  if (exit === null) return;
+  p.x = (exit % state.width) + 0.5;
+  p.y = Math.floor(exit / state.width) + 0.5;
+  for (const b of state.bombs) if (!b.flight && !b.held && overlapsTile(p.x, p.y, b.x, b.y)) p.passing.push(b.id);
+}
+
+/** A belt carries whoever stands on it along, drawing them onto its lane, unless something is in the way. */
+function rideBelt(state: GameState, p: Player) {
+  const dir = beltAt(state, Math.floor(p.x), Math.floor(p.y));
+  if (!dir) return;
+  const d = DIR_VEC[dir];
+  const s = BELT_SPEED / TICK_RATE;
+  if (!blockedAt(state, p, p.x + d.dx * s, p.y + d.dy * s)) {
+    p.x += d.dx * s;
+    p.y += d.dy * s;
+  }
+  const cross = d.dx !== 0 ? "y" : "x";
+  slide(state, p, cross, Math.floor(p[cross]) + 0.5, s);
+}
+
+/** Every BELT_CARRY_TICKS, belts move the bombs and items lying on them a tile on, where there's room. */
+function carryOnBelts(state: GameState) {
+  if (!state.floor || state.tick % BELT_CARRY_TICKS !== 0) return;
+  for (const b of state.bombs) {
+    const dir = b.slide || b.flight || b.held || isBuried(b) ? null : beltAt(state, b.x, b.y);
+    if (dir) moveBomb(state, b, dir);
+  }
+  for (const u of state.powerUps) {
+    const dir = beltAt(state, u.x, u.y);
+    if (!dir) continue;
+    const x = u.x + DIR_VEC[dir].dx;
+    const y = u.y + DIR_VEC[dir].dy;
+    if (canPlaceAt(state, x, y) && !state.powerUps.some((o) => o.x === x && o.y === y)) Object.assign(u, { x, y });
+  }
+}
+
+/** Where the match is in the lava vents' cycle: they erupt when it comes round to 0 (counted from "Go!"). */
+export const ventCycle = (state: GameState) =>
+  (((state.tick - state.goTick) % VENT_PERIOD_TICKS) + VENT_PERIOD_TICKS) % VENT_PERIOD_TICKS;
+
+/** Lava vents erupt all together every VENT_PERIOD_TICKS: fire nobody owns on each, setting off any bomb there. */
+function eruptVents(state: GameState) {
+  if (!state.floor || ventCycle(state) !== 0) return;
+  state.floor.forEach((f, i) => {
+    if (f !== FLOOR.VENT || state.tiles[i] !== TILE.EMPTY) return;
+    const x = i % state.width;
+    const y = Math.floor(i / state.width);
+    addFlame(state, x, y, 0, "");
+    const bomb = groundBombAt(state, x, y);
+    if (bomb) bomb.ticksLeft = 0;
+  });
 }
 
 // ---------------------------------------------------------- revenge ghosts
@@ -930,10 +1083,10 @@ function stepGhost(state: GameState, p: Player, input: Partial<Input> | undefine
 
 // ------------------------------------------------------------- movement
 
-/** Whether this player can't walk into tile (tx, ty) (blocks, and bombs unless passing through them). */
+/** Whether this player can't walk into tile (tx, ty) (stone, crates, bricks without wall-pass, and bombs unless passing through them). */
 export function solidFor(state: GameState, p: Player, tx: number, ty: number): boolean {
   const tile = tileAt(state, tx, ty);
-  if (tile === TILE.HARD || (tile === TILE.SOFT && !p.wallPass)) return true;
+  if (stopsBlast(tile) || (tile === TILE.SOFT && !p.wallPass)) return true;
   if (p.bombPass) return false;
   const bomb = bombAt(state, tx, ty);
   return bomb !== undefined && !p.passing.includes(bomb.id);
@@ -957,7 +1110,11 @@ function blockedAt(state: GameState, p: Player, x: number, y: number): boolean {
 function movePlayer(state: GameState, p: Player, dx: number, dy: number, speedFactor = 1) {
   if (dx !== 0) dy = 0;
   p.moving = false;
-  if (dx === 0 && dy === 0) return;
+  let leaning = false;
+  if (dx === 0 && dy === 0) {
+    p.push = 0;
+    return;
+  }
 
   const before = { x: p.x, y: p.y };
   const s = Math.min(MAX_STEP_TILES, (playerSpeed(p) * speedFactor) / TICK_RATE);
@@ -973,13 +1130,38 @@ function movePlayer(state: GameState, p: Player, dx: number, dy: number, speedFa
     const flush = d > 0 ? Math.floor(next + r) - r - EPS : Math.floor(next - r) + 1 + r + EPS;
     p[main] = d > 0 ? Math.max(p[main], flush) : Math.min(p[main], flush);
     tryKick(state, p);
+    leaning = leanOnCrate(state, p, main, d);
     const lane = Math.floor(p[cross]);
     const ahead = Math.floor(p[main]) + d;
     const aheadBlocked = main === "x" ? solidFor(state, p, ahead, lane) : solidFor(state, p, lane, ahead);
     if (!aheadBlocked) slide(state, p, cross, lane + 0.5, s);
   }
 
+  if (!leaning) p.push = 0;
   p.moving = Math.abs(p.x - before.x) > EPS || Math.abs(p.y - before.y) > EPS;
+}
+
+/**
+ * Walking into a crate, lined up with it: after PUSH_TICKS of that it moves a tile on, if the tile beyond
+ * is open floor (no bomb, item, fire, portal or anyone on it). Returns whether the bomber leans on one.
+ */
+function leanOnCrate(state: GameState, p: Player, main: "x" | "y", d: number): boolean {
+  const cross = main === "x" ? "y" : "x";
+  const lane = Math.floor(p[cross]);
+  if (Math.abs(p[cross] - (lane + 0.5)) > PUSH_ALIGN) return false;
+  const ahead = Math.floor(p[main]) + d;
+  const at = (k: number) => (main === "x" ? { x: k, y: lane } : { x: lane, y: k });
+  const crate = at(ahead);
+  if (tileAt(state, crate.x, crate.y) !== TILE.CRATE) return false;
+  if (++p.push < PUSH_TICKS) return true;
+  const to = at(ahead + d);
+  const room = canPlaceAt(state, to.x, to.y) && !state.powerUps.some((u) => u.x === to.x && u.y === to.y) && !personAt(state, to.x, to.y);
+  if (room) {
+    state.tiles[crate.y * state.width + crate.x] = TILE.EMPTY;
+    state.tiles[to.y * state.width + to.x] = TILE.CRATE;
+    p.push = 0;
+  }
+  return true;
 }
 
 function slide(state: GameState, p: Player, axis: "x" | "y", target: number, max: number) {

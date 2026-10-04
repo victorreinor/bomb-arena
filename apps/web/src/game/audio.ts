@@ -28,7 +28,9 @@ export type SfxName =
   | "go"
   | "thud"
   | "bonk"
-  | "boing";
+  | "boing"
+  | "warp"
+  | "eruption";
 import { readPref, writePref } from "../config";
 
 export type TrackName = "menu" | "battle" | "battle2" | "hurry";
@@ -451,6 +453,18 @@ class AudioEngine {
         this.slide("sine", 180, 520, t, 0.16, 0.6, bus);
         this.slide("triangle", 540, 260, t + 0.08, 0.14, 0.3, bus);
         this.noiseHit(t, 0.04, 900, 0.35, bus, "lowpass");
+        break;
+      case "warp":
+        // a shimmering whoosh up and through
+        [523, 784, 1047, 1568].forEach((f, i) => this.tone("triangle", f, t + i * 0.035, 0.12, 0.3, bus));
+        this.slide("sine", 300, 1400, t, 0.25, 0.35, bus);
+        this.noiseHit(t, 0.2, 4000, 0.2, bus, "bandpass", 8000);
+        break;
+      case "eruption":
+        // the ground rumbling, then lava spurting out with a hiss
+        this.slide("sawtooth", 70, 40, t, 0.5, 0.45, this.boomBus);
+        this.noiseHit(t, 0.6, 500, 0.9, this.boomBus, "lowpass", 120);
+        this.noiseHit(t + 0.05, 0.45, 3000, 0.4, bus, "highpass", 1200);
         break;
       case "haunt":
         // ghostly wobble: two slightly detuned voices gliding down

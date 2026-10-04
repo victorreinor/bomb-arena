@@ -214,6 +214,17 @@ export class Effects {
         case "hurry":
           this.jolt(1, 0.25);
           break;
+        case "warp":
+          this.warp(e.from.x, e.from.y);
+          this.warp(e.to.x, e.to.y);
+          break;
+        case "cratePush":
+          this.cratePush(e.x, e.y, e.dir);
+          break;
+        case "eruption":
+          for (const c of e.cells) this.erupt(c.x, c.y);
+          this.jolt(1.6);
+          break;
       }
     }
   }
@@ -405,6 +416,29 @@ export class Effects {
     this.burst(cx - v.dx * 6, cy - v.dy * 6, 12, ["#ffffff", "#ffd23a", "#ff9a1e"], { speed: [30, 90], life: [0.2, 0.5], bias: { x: -v.dx * 40, y: -v.dy * 40 } });
     this.puffs(cx - v.dx * 7, cy - v.dy * 7 + 3, 5, "#8a8a99", 14, 8);
     this.jolt(1.4);
+  }
+
+  /** A sparkle where something went into or came out of a portal (centre in tiles). */
+  private warp(x: number, y: number) {
+    const cx = x * T;
+    const cy = y * T;
+    this.ring(cx, cy, 0.3, T * 1.1, "#c8f4ff");
+    this.burst(cx, cy, 12, ["#ffffff", "#5ff0ff", "#ff5fd2"], { speed: [20, 60], life: [0.2, 0.45], gravity: -40 });
+  }
+
+  /** Dust kicked up behind a crate shoved onto (tx, ty). */
+  private cratePush(tx: number, ty: number, dir: Dir) {
+    const v = DIR_VEC[dir];
+    this.puffs((tx + 0.5 - v.dx * 0.9) * T, (ty + 0.5 - v.dy * 0.9) * T + 4, 4, "#b8a68a", 10, 6);
+  }
+
+  /** Lava spurting out of the vent at (tx, ty). */
+  private erupt(tx: number, ty: number) {
+    const cx = (tx + 0.5) * T;
+    const cy = (ty + 0.5) * T;
+    this.glow(cx, cy, 0.5, T * 1.4);
+    this.burst(cx, cy, 14, ["#ffd23a", "#ff7a1a", "#ff3b1a"], { speed: [40, 110], life: [0.3, 0.7], gravity: 160 });
+    this.puffs(cx, cy - 4, 3, "#4a3a3a", 12, 18);
   }
 
   /** A rubber bomb springing back off the side it hit (the far side from where it now heads). */

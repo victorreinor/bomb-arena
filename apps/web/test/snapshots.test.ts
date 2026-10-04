@@ -143,6 +143,17 @@ describe("interpolation", () => {
     expect([mid.x, mid.jump!.ticks, mid.facing]).toEqual([2.25, 4.25, "right"]);
   });
 
+  test("a trip through a portal is shown at once, not as a slide across the board", () => {
+    const game = makeGame(corridor("1.........2"));
+    const a = { ...game.players[0], x: 2.5 };
+    expect(lerpPlayer(a, { ...a, x: 9.5 }, 0.3).x).toBe(9.5);
+    testBomb(game, 2, 1);
+    const next = structuredClone(game);
+    next.tick++;
+    next.bombs[0].x = 8;
+    expect(lerpState(game, next, 0.3).bombs[0].x).toBe(2); // the nearer snapshot's, not somewhere in between
+  });
+
   test("kicked bombs glide and thrown ones fly a smooth arc, but a bounce starts its arc afresh", () => {
     const game = makeGame(corridor("1.........2"));
     testBomb(game, 3, 1, { slide: "right" });

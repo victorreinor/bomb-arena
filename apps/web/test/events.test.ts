@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { MAX_RANGE, step, type GameState } from "@bomberman/engine";
-import { corridor, makeGame, testBomb, testFlame } from "../../../packages/engine/test/helpers";
+import { MAX_RANGE, VENT_PERIOD_TICKS, step, type GameState } from "@bomberman/engine";
+import { corridor, makeGame, run, testBomb, testFlame } from "../../../packages/engine/test/helpers";
 import { diffGame } from "../src/game/events";
 
 /** p1 one step short of an item at (3, 1), walking onto it over the next few ticks: the states before and after. */
@@ -61,5 +61,37 @@ describe("diffGame: new bombs", () => {
   test("picking up a mine is a pickup of a mine", () => {
     const { before, after } = walkOnto("mine");
     expect(diffGame(before, after).filter((e) => e.type === "pickup").map((e) => e.type === "pickup" && e.kind)).toEqual(["mine"]);
+  });
+});
+
+describe("diffGame: special floors", () => {
+  test("walking through a portal is a warp, from one end to the other", () => {
+    const s = makeGame(corridor("1A....A...2"));
+    s.players[0].x = 1.9;
+    const before = structuredClone(s);
+    step(s, { p1: { dx: 1 } }); // into the pad's cell: out at the other end
+    const warps = diffGame(before, s).filter((e) => e.type === "warp");
+    expect(warps).toEqual([{ type: "warp", from: { x: 1.9, y: 1.5 }, to: { x: 7.5, y: 1.5 } }]);
+  });
+
+  test("a crate shoved is a crate push, heading the way it went", () => {
+    const s = makeGame(corridor("1.=.....2"));
+    let before = structuredClone(s);
+    for (let t = 0; t < 40 && s.tiles[1 * s.width + 3] === 3; t++) {
+      before = structuredClone(s);
+      step(s, { p1: { dx: 1 } });
+    }
+    expect(diffGame(before, s).filter((e) => e.type === "cratePush")).toEqual([{ type: "cratePush", x: 4, y: 1, dir: "right" }]);
+  });
+
+  test("the vents erupting is an eruption, once, even when snapshots skip the very tick", () => {
+    const s = makeGame(corridor("1.*.*.2"));
+    run(s, VENT_PERIOD_TICKS - 2);
+    const before = structuredClone(s);
+    run(s, 4);
+    expect(diffGame(before, s).filter((e) => e.type === "eruption")).toEqual([{ type: "eruption", cells: [{ x: 3, y: 1 }, { x: 5, y: 1 }] }]);
+    const after = structuredClone(s);
+    step(s);
+    expect(diffGame(after, s).some((e) => e.type === "eruption")).toBe(false);
   });
 });

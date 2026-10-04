@@ -16,8 +16,17 @@ export function dirFrom(dx: number, dy: number): Dir | null {
   return null;
 }
 
-export const TILE = { EMPTY: 0, HARD: 1, SOFT: 2 } as const;
+/** What stands on a cell: nothing, stone, a brick, or a crate (solid and fireproof, but anyone can push it). */
+export const TILE = { EMPTY: 0, HARD: 1, SOFT: 2, CRATE: 3 } as const;
 export type Tile = (typeof TILE)[keyof typeof TILE];
+
+/**
+ * What the floor of a cell does, under whatever stands on it: nothing, ice, a lava vent, a conveyor belt
+ * (BELT plus the index of its direction in BELT_DIRS) or a portal pad (PORTAL plus the number of its pair).
+ */
+export const FLOOR = { PLAIN: 0, ICE: 1, VENT: 2, BELT: 3, PORTAL: 7 } as const;
+/** The way each belt code runs: FLOOR.BELT + i runs BELT_DIRS[i]. */
+export const BELT_DIRS = ["up", "right", "down", "left"] as const satisfies readonly Dir[];
 
 /** Every power-up, in the column order of powerups.png (the sprite tool and the client both read this). */
 export const POWERUP_KINDS = [
@@ -107,6 +116,8 @@ export interface Player {
   lineCharges: number;
   /** pending one-shot mines: the next bombs laid bury themselves */
   mineCharges: number;
+  /** ticks spent leaning on a crate: at PUSH_TICKS it moves */
+  push: number;
   disease: { kind: DiseaseKind; ticksLeft: number } | null;
   /** id of the bomb being carried (glove) */
   holding: number | null;
@@ -122,7 +133,7 @@ export interface Player {
   jump: { fromX: number; fromY: number; toX: number; toY: number; ticks: number; total: number } | null;
 }
 
-export type DeathCause = "blast" | "crush" | "left";
+export type DeathCause = "blast" | "crush" | "lava" | "left";
 
 /** Power-ups that switch on a permanent ability, and the Player flag each one sets. */
 export const ABILITY_FIELDS = {
@@ -199,8 +210,9 @@ export interface MapDef {
   id: string;
   name: string;
   /**
-   * ASCII rows. `#` hard block, `+` soft block, `o` soft block with probability
-   * `softDensity`, `.` empty, `1`-`4` player spawn points (as many players as spawns).
+   * ASCII rows. `#` hard block, `+` soft block, `o` soft block with probability `softDensity`, `.` empty,
+   * `1`-`4` player spawn points (as many players as spawns), `=` crate, `~` ice, `*` lava vent,
+   * `^` `>` `v` `<` conveyor belts, and `A`-`D` portals (each letter twice: the two ends of a pair).
    */
   rows: string[];
   softDensity: number;
@@ -216,6 +228,8 @@ export interface GameState {
   width: number;
   height: number;
   tiles: Tile[];
+  /** what each cell's floor does (FLOOR codes); null on maps where it's all plain */
+  floor: number[] | null;
   players: Player[];
   bombs: Bomb[];
   flames: Flame[];

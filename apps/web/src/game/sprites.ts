@@ -1,4 +1,4 @@
-import { PET_KINDS, PLAYER_COLORS, type Bomb, type Dir, type PetKind } from "@bomberman/engine";
+import { BELT_DIRS, FLOOR, PET_KINDS, PLAYER_COLORS, type Bomb, type Dir, type PetKind } from "@bomberman/engine";
 
 /**
  * The layout of every sprite sheet lives here: the game reads it to draw, and the generator in tools/
@@ -9,7 +9,7 @@ import { PET_KINDS, PLAYER_COLORS, type Bomb, type Dir, type PetKind } from "@bo
 export const TILE_PX = 16;
 
 /** Each map has its look: one tiles-<theme>.png per theme. */
-export const TILE_THEMES = ["garden", "snow", "temple", "factory"] as const;
+export const TILE_THEMES = ["garden", "snow", "temple", "factory", "assembly", "space", "ice", "warehouse", "volcano"] as const;
 export type TileTheme = (typeof TILE_THEMES)[number];
 /**
  * tiles-<theme>.png columns: two floor tones (alternating like a chessboard), each also with a small
@@ -27,6 +27,11 @@ export const THEME_COLORS: Record<TileTheme, { brick: [base: string, lit: string
   snow: { brick: ["#b9d4ee", "#eef6fd", "#98b9db", "#5d7da2"], block: ["#9fd3ea", "#5f9fc2", "#ffffff"] },
   temple: { brick: ["#c4643a", "#ea8d58", "#93421f", "#e7c15e"], block: ["#d3a65e", "#a87c3d", "#f6d595"] },
   factory: { brick: ["#c58b4f", "#e7b47a", "#94602f", "#6b4220"], block: ["#9aa4b8", "#6e778c", "#f2c230"] },
+  assembly: { brick: ["#c89a5a", "#e6bd7f", "#9c7038", "#6e4c22"], block: ["#5c6270", "#3c414d", "#ff9a1e"] },
+  space: { brick: ["#9a5cf0", "#d2a8ff", "#6a34b8", "#3c1a70"], block: ["#8a92b8", "#5a6188", "#5ff0ff"] },
+  ice: { brick: ["#f4f8ff", "#ffffff", "#c8d4ea", "#8a9ab8"], block: ["#8c93a6", "#5e6478", "#ffffff"] },
+  warehouse: { brick: ["#c8b48a", "#e6d6b0", "#9c8a62", "#6e5e3e"], block: ["#9aa0aa", "#6a707a", "#f2c230"] },
+  volcano: { brick: ["#7a3a2a", "#a65a3a", "#52261a", "#ff7a1a"], block: ["#3a2c44", "#1e1626", "#b58cff"] },
 };
 
 /**
@@ -44,6 +49,56 @@ export function tileName(kind: "floor" | "hard" | "soft", shaded: boolean, x: nu
 /** Paints one board tile from a theme's sheet at board cell (x, y). */
 export function drawTile(g: CanvasRenderingContext2D, sheet: CanvasImageSource, tile: TileName, x: number, y: number) {
   g.drawImage(sheet, TILE_SHEET.indexOf(tile) * TILE_PX, 0, TILE_PX, TILE_PX, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX);
+}
+
+/**
+ * floor.png, the special floors and the crate in 16x16 cells. Row 0: FLOOR_CELLS, then BELT_FRAMES of a
+ * belt running right (turned for the other ways), its chevrons stepping along. Then one row per portal
+ * pair (PORTAL_COLORS, the pair's letter A, B, C...), PORTAL_FRAMES of it swirling.
+ */
+export const FLOOR_CELLS = ["ice", "vent", "ventHot", "crate"] as const;
+export const BELT_FRAMES = 4;
+export const PORTAL_FRAMES = 4;
+export const PORTAL_COLORS = ["#5ff0ff", "#ff5fd2", "#b8ff5f", "#ffd23a"] as const;
+export const floorSheetUrl = "/sprites/floor.png";
+
+/** Paints one of FLOOR_CELLS from the floor sheet at board cell (x, y). */
+export function drawFloorCell(g: CanvasRenderingContext2D, sheet: CanvasImageSource, cell: (typeof FLOOR_CELLS)[number], x: number, y: number) {
+  g.drawImage(sheet, FLOOR_CELLS.indexOf(cell) * TILE_PX, 0, TILE_PX, TILE_PX, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX);
+}
+
+/** Quarter turns from "right" for each belt direction. */
+const TURNS: Record<Dir, number> = { right: 0, down: 1, left: 2, up: 3 };
+
+/**
+ * Paints a special floor (a FLOOR code) at board cell (x, y), `timeMs` into its animation: ice, a vent
+ * (glowing `heat` from 0 to 1, about to erupt), a belt running its way, a portal in its pair's colour.
+ */
+export function drawFloor(g: CanvasRenderingContext2D, sheet: CanvasImageSource, code: number, x: number, y: number, timeMs: number, heat = 0) {
+  if (code === FLOOR.ICE) return drawFloorCell(g, sheet, "ice", x, y);
+  if (code === FLOOR.VENT) {
+    drawFloorCell(g, sheet, "vent", x, y);
+    if (heat <= 0) return;
+    g.save();
+    g.globalAlpha = Math.min(1, heat);
+    drawFloorCell(g, sheet, "ventHot", x, y);
+    g.restore();
+    return;
+  }
+  if (code >= FLOOR.PORTAL) {
+    const row = 1 + ((code - FLOOR.PORTAL) % PORTAL_COLORS.length);
+    const frame = Math.floor(timeMs / 110) % PORTAL_FRAMES;
+    return g.drawImage(sheet, frame * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX);
+  }
+  const belt = code - FLOOR.BELT;
+  if (belt < 0 || belt >= BELT_DIRS.length) return;
+  // 2 tiles a second: the chevrons, 8px apart, step 2px a frame
+  const frame = Math.floor(timeMs / 62) % BELT_FRAMES;
+  g.save();
+  g.translate((x + 0.5) * TILE_PX, (y + 0.5) * TILE_PX);
+  g.rotate((TURNS[BELT_DIRS[belt]] * Math.PI) / 2);
+  g.drawImage(sheet, (FLOOR_CELLS.length + frame) * TILE_PX, 0, TILE_PX, TILE_PX, -TILE_PX / 2, -TILE_PX / 2, TILE_PX, TILE_PX);
+  g.restore();
 }
 
 /** Copies one cell of a sheet, mirrored left-right when `flip` (left-facing frames are right ones flipped). */
@@ -136,6 +191,8 @@ export function drawMount(ctx: CanvasRenderingContext2D, sheet: CanvasImageSourc
 
 export interface Sprites {
   tiles: Record<TileTheme, HTMLImageElement>;
+  /** special floors and the crate (see FLOOR_CELLS) */
+  floor: HTMLImageElement;
   bomb: HTMLImageElement;
   powerups: HTMLImageElement;
   bombers: HTMLImageElement[];
@@ -169,10 +226,10 @@ export function load(src: string): Promise<HTMLImageElement> {
 export const tileSheetUrl = (theme: TileTheme) => `/sprites/tiles-${theme}.png`;
 
 export async function loadSprites(): Promise<Sprites> {
-  const [[bomb, powerups, pets], tiles, bombers] = await Promise.all([
-    Promise.all(["/sprites/bomb.png", "/sprites/powerups.png", "/sprites/pets.png"].map(load)),
+  const [[bomb, powerups, pets, floor], tiles, bombers] = await Promise.all([
+    Promise.all(["/sprites/bomb.png", "/sprites/powerups.png", "/sprites/pets.png", floorSheetUrl].map(load)),
     Promise.all(TILE_THEMES.map(async (theme) => [theme, await load(tileSheetUrl(theme))] as const)),
     Promise.all(Array.from({ length: PLAYER_COLORS }, (_, i) => load(`/sprites/bomber-${i}.png`))),
   ]);
-  return { tiles: Object.fromEntries(tiles) as Record<TileTheme, HTMLImageElement>, bomb, powerups, pets, bombers };
+  return { tiles: Object.fromEntries(tiles) as Record<TileTheme, HTMLImageElement>, floor, bomb, powerups, pets, bombers };
 }

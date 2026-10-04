@@ -22,7 +22,7 @@ function podiumEntries(game: GameState, nameOf: (id: string) => string): PodiumE
   }));
 }
 
-/** Who went out how, in order: "Ana explodiu Bia", "Caio se explodiu", "Dani foi esmagado", "Edu saiu". */
+/** Who went out how, in order: "Ana explodiu Bia", "Caio se explodiu", "Dani foi esmagado", "Fê caiu na lava", "Edu saiu". */
 function knockoutLog(game: GameState, nameOf: (id: string) => string): string[] {
   return game.players
     .filter((p) => p.death)
@@ -30,6 +30,7 @@ function knockoutLog(game: GameState, nameOf: (id: string) => string): string[] 
     .map((p) => {
       const { how, by } = p.death!;
       if (how === "crush") return `${nameOf(p.id)} foi esmagado`;
+      if (how === "lava") return `${nameOf(p.id)} caiu na lava`;
       if (how === "left") return `${nameOf(p.id)} saiu`;
       return by === p.id || by === null ? `${nameOf(p.id)} se explodiu` : `${nameOf(by)} explodiu ${nameOf(p.id)}`;
     });

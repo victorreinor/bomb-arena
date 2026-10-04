@@ -1,4 +1,4 @@
-import { TICK_MS, fromSnapshot, type GameSnapshot, type GameState, type InputAck, type Player, type SentLists, type Tile } from "@bomberman/engine";
+import { TICK_MS, fromSnapshot, type Board, type GameSnapshot, type GameState, type InputAck, type Player, type SentLists } from "@bomberman/engine";
 
 const MAX_BUFFER = 30;
 /** how many snapshots the lateness estimate looks back over (about two seconds) */
@@ -26,12 +26,17 @@ export interface Sample {
   latest: GameState;
 }
 
+/** further apart than this (tiles) between two ticks, something went through a portal: show it at once */
+const WARP_TILES = 1.5;
+const warped = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(b.x - a.x) + Math.abs(b.y - a.y) > WARP_TILES;
+
 /** A timed animation (a hop, a flight) carries on between two states only if its clock moved on: a restart (a bounce) snaps. */
 const carriesOn = (from: { ticks: number } | null, to: { ticks: number } | null) => !!from && !!to && to.ticks > from.ticks;
 const lerp = (from: number, to: number, alpha: number) => from + (to - from) * alpha;
 
-/** A player `alpha` of the way from `pa` to `pb`: walking and hops are smooth, the rest is `pb`'s. */
+/** A player `alpha` of the way from `pa` to `pb`: walking and hops are smooth, a trip through a portal and the rest are `pb`'s. */
 export function lerpPlayer(pa: Player, pb: Player, alpha: number): Player {
+  if (warped(pa, pb)) return pb;
   const jump = carriesOn(pa.jump, pb.jump) ? { ...pb.jump!, ticks: lerp(pa.jump!.ticks, pb.jump!.ticks, alpha) } : pb.jump;
   return { ...pb, x: lerp(pa.x, pb.x, alpha), y: lerp(pa.y, pb.y, alpha), jump };
 }
@@ -50,7 +55,7 @@ export function lerpState(a: GameState, b: GameState, alpha: number): GameState 
     if (carriesOn(from.flight, to.flight)) {
       return { ...bomb, flight: { ...bomb.flight!, ticks: lerp(from.flight!.ticks, to.flight!.ticks, alpha) } };
     }
-    if (from.flight || to.flight) return bomb;
+    if (from.flight || to.flight || warped(from, to)) return bomb;
     return { ...bomb, x: lerp(from.x, to.x, alpha), y: lerp(from.y, to.y, alpha) };
   });
   return { ...discrete, players, bombs };
@@ -70,8 +75,8 @@ export class SnapshotBuffer {
   private play = 0;
   private lastAt = 0;
   private drained = -1;
-  /** the board as last received: snapshots only carry tiles when they change */
-  private tiles: Tile[] | null = null;
+  /** the board as last received: snapshots only carry it when it changes */
+  private board: Board | null = null;
   /** players and bombs as of the last snapshot received: the next one may only carry what changed in them */
   private lists: SentLists | null = null;
   /** arrival time minus the snapshot's place in the tick schedule, for recent snapshots */
@@ -83,15 +88,15 @@ export class SnapshotBuffer {
       this.round = round;
       this.snaps = [];
       this.drained = -1;
-      this.tiles = null;
+      this.board = null;
       this.lists = null;
       this.acks = {};
       this.transits = []; // tick numbers start over
     }
     Object.assign(this.acks, acks);
-    if (snap.tiles) this.tiles = snap.tiles;
-    if (!this.tiles) return; // can't draw a board we haven't seen yet
-    const game = fromSnapshot(snap, this.tiles, this.lists);
+    if (snap.tiles) this.board = { tiles: snap.tiles, floor: snap.floor ?? null };
+    if (!this.board) return; // can't draw a board we haven't seen yet
+    const game = fromSnapshot(snap, this.board, this.lists);
     if (!game) return; // changes with nothing to apply them to: wait for the next full set
     this.lists = { players: game.players, bombs: game.bombs }; // even if this snapshot is too old to show, the next one's changes build on it
     this.resultsIn = resultsIn;
@@ -123,7 +128,7 @@ export class SnapshotBuffer {
     this.round = -1;
     this.resultsIn = -1;
     this.drained = -1;
-    this.tiles = null;
+    this.board = null;
     this.lists = null;
     this.acks = {};
     this.transits = [];

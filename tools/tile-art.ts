@@ -364,7 +364,288 @@ const snow: TileSet = {
   },
 };
 
-const SETS: Record<TileTheme, TileSet> = { garden, factory, temple, snow };
+// ------------------------------------------------------------------ assembly: steel deck, machines, cardboard boxes
+
+const assembly: TileSet = {
+  floor(tone, detail) {
+    const base = hex(tone ? "#474c58" : "#4f5562");
+    const img = fill(base);
+    const r = rng(91 + tone);
+    // diamond plate: little raised dashes, staggered
+    for (let y = 2; y < T; y += 4) {
+      for (let x = y % 8 === 2 ? 1 : 3; x < T - 1; x += 4) {
+        img.set(x, y, mix(base, hex("#9aa2b4"), 0.4));
+        img.set(x + 1, y, shade(base, 0.75));
+      }
+    }
+    for (let i = 0; i < 8; i++) img.set(Math.floor(r() * T), Math.floor(r() * T), shade(base, 0.85));
+    img.rect(0, 0, T, 1, mix(base, hex("#a0a8ba"), 0.3));
+    img.rect(0, T - 1, T, 1, shade(base, 0.7));
+    if (detail) for (let x = 0; x < T; x++) img.set(x, 7, Math.floor(x / 3) % 2 ? hex("#f2c230") : hex("#2b2a33")); // a safety line
+    return img;
+  },
+  hard() {
+    // a machine: grey casing with a grille and a warning light, hazard band in front
+    const img = new Img(T, T);
+    const [top, front, light] = key("assembly").block;
+    img.rect(0, 0, T, 11, top);
+    img.rect(0, 0, T, 1, hex("#8a92a2"));
+    img.rect(0, 0, 1, 11, hex("#7a8292"));
+    img.rect(T - 1, 0, 1, 11, hex("#3a3e4a"));
+    for (let y = 4; y < 10; y += 2) img.rect(3, y, 10, 1, hex("#2c3038"));
+    img.rect(6, 1, 4, 2, light);
+    img.set(6, 1, hex("#ffe0a0"));
+    img.rect(0, 11, T, 5, front);
+    for (let y = 12; y < 15; y++) for (let x = 0; x < T; x++) if (Math.floor((x + y) / 2) % 2) img.set(x, y, hex("#f2c230"));
+    img.rect(0, 11, T, 1, hex("#6a707e"));
+    img.rect(0, 15, T, 1, hex("#1c1e24"));
+    return img;
+  },
+  soft() {
+    // a cardboard box, taped shut
+    const img = new Img(T, T);
+    const [box, lit, dim, edge] = key("assembly").brick;
+    img.rect(0, 0, T, 11, box);
+    img.rect(0, 0, T, 1, lit);
+    img.rect(0, 0, 1, 11, lit);
+    img.rect(T - 1, 0, 1, 11, dim);
+    img.rect(6, 0, 4, 11, hex("#e0cf9a"));
+    img.rect(6, 0, 1, 11, hex("#f2e4b8"));
+    img.rect(0, 11, T, 5, dim);
+    img.rect(6, 11, 4, 4, hex("#b8a676"));
+    img.rect(0, 11, T, 1, hex("#b8874a"));
+    for (const x of [2, 12]) img.rect(x, 12, 1, 2, edge); // printed marks
+    img.rect(0, 15, T, 1, edge);
+    return img;
+  },
+};
+
+// ------------------------------------------------------------------ space: starry deck, hull blocks, crystals
+
+const space: TileSet = {
+  floor(tone, detail) {
+    const base = hex(tone ? "#1c1d3a" : "#22244a");
+    const img = fill(base);
+    const r = rng(101 + tone);
+    for (let i = 0; i < 7; i++) img.set(Math.floor(r() * T), Math.floor(r() * T), r() < 0.6 ? hex("#c8ccff") : hex("#9a7cff"));
+    // panel seams
+    img.rect(0, 0, T, 1, mix(base, hex("#5a5ea8"), 0.5));
+    img.rect(0, 0, 1, T, mix(base, hex("#5a5ea8"), 0.35));
+    img.rect(0, T - 1, T, 1, shade(base, 0.6));
+    img.rect(T - 1, 0, 1, T, shade(base, 0.65));
+    if (detail) {
+      // a bright star, twinkling
+      const x = 4 + Math.floor(r() * 8);
+      const y = 4 + Math.floor(r() * 8);
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) img.set(x + dx, y + dy, hex("#8f9cff"));
+      img.set(x, y, hex("#ffffff"));
+    }
+    return img;
+  },
+  hard() {
+    // a hull block: brushed metal and rivets, a glowing strip in front
+    const img = new Img(T, T);
+    const [top, front, glow] = key("space").block;
+    img.rect(0, 0, T, 11, top);
+    for (let y = 2; y < 11; y += 2) img.rect(1, y, T - 2, 1, mix(top, hex("#ffffff"), 0.12));
+    img.rect(0, 0, T, 1, hex("#c4cae6"));
+    img.rect(0, 0, 1, 11, hex("#b0b6d8"));
+    img.rect(T - 1, 0, 1, 11, hex("#4a5078"));
+    for (const [x, y] of [[2, 2], [13, 2], [2, 8], [13, 8]]) img.set(x, y, hex("#3a3f60"));
+    img.rect(0, 11, T, 5, front);
+    img.rect(2, 13, 12, 1, glow);
+    img.rect(0, 11, T, 1, hex("#7a82aa"));
+    img.rect(0, 15, T, 1, hex("#262a48"));
+    return img;
+  },
+  soft() {
+    // crystals growing out of the deck: lit on the left, dark on the right
+    const img = space.floor(0, false);
+    const [body, light, dark, edge] = key("space").brick;
+    for (const [cx, w, h] of [[6, 7, 12], [11, 5, 8], [3, 4, 6]]) {
+      const apex = 14 - h;
+      for (let y = apex; y <= 14; y++) {
+        const half = (w / 2) * ((y - apex) / h);
+        for (let x = Math.ceil(cx - half); x <= Math.floor(cx + half); x++) {
+          const rim = x < cx - half + 1 || x > cx + half - 1 || y === 14;
+          img.set(x, y, rim ? edge : x < cx ? light : x > cx ? dark : body);
+        }
+      }
+    }
+    img.rect(2, 15, 12, 1, shade(hex("#22244a"), 0.6));
+    return img;
+  },
+};
+
+// ------------------------------------------------------------------ ice: frosted bank, snowy boulders, snowmen
+
+const ice: TileSet = {
+  floor(tone, detail) {
+    const base = hex(tone ? "#d5dbec" : "#e1e6f4");
+    const img = fill(base);
+    const r = rng(111 + tone);
+    for (let i = 0; i < 12; i++) img.set(Math.floor(r() * T), Math.floor(r() * T), mix(base, hex("#9aa6cc"), 0.35));
+    for (let i = 0; i < 4; i++) img.set(Math.floor(r() * T), Math.floor(r() * T), hex("#ffffff"));
+    if (detail) {
+      // a frozen tuft of grass poking through
+      const x = 5 + Math.floor(r() * 6);
+      const y = 7 + Math.floor(r() * 5);
+      for (const [dx, dy] of [[0, 0], [0, -1], [-1, -1], [1, -2], [1, -1]]) img.set(x + dx, y + dy, hex("#7a9a8e"));
+      img.set(x + 1, y - 2, hex("#ffffff"));
+    }
+    return img;
+  },
+  hard() {
+    // a boulder with snow on top
+    const img = new Img(T, T);
+    const [rock, deep, cap] = key("ice").block;
+    img.rect(0, 0, T, 11, rock);
+    const r = rng(121);
+    for (let i = 0; i < 16; i++) img.set(Math.floor(r() * T), 3 + Math.floor(r() * 8), r() < 0.5 ? hex("#7a8194") : hex("#a3aabb"));
+    img.rect(0, 0, T, 3, cap);
+    for (const x of [2, 3, 7, 11, 12]) img.set(x, 3, hex("#eef2fb"));
+    img.rect(0, 2, T, 1, hex("#dfe5f2"));
+    img.rect(T - 1, 3, 1, 8, hex("#4e5466"));
+    img.rect(0, 11, T, 5, deep);
+    img.rect(0, 11, T, 1, hex("#767d90"));
+    for (const [x, y] of [[3, 13], [9, 12], [12, 14]]) img.set(x, y, hex("#3e4354"));
+    img.rect(0, 15, T, 1, hex("#33374a"));
+    return img;
+  },
+  soft() {
+    // a snowman: two snowballs, coal eyes and buttons, a carrot nose
+    const img = ice.floor(0, false);
+    const [snowball, lit, dim, outline] = key("ice").brick;
+    for (const [cx, cy, rad] of [[7.5, 10.5, 5], [7.5, 4.5, 3.4]]) {
+      for (let y = 0; y < T; y++) {
+        for (let x = 0; x < T; x++) {
+          const d = Math.hypot(x - cx, y - cy);
+          if (d > rad) continue;
+          const light = (cx - x) * 0.6 + (cy - y) * 0.8;
+          img.set(x, y, d > rad - 1 ? outline : light > 1.5 ? lit : light < -1.5 ? dim : snowball);
+        }
+      }
+    }
+    for (const [x, y] of [[6, 4], [9, 4], [7, 9], [7, 11]]) img.set(x, y, hex("#2a2a35"));
+    img.rect(8, 5, 2, 1, hex("#ff8a1e"));
+    img.rect(4, 15, 8, 1, shade(hex("#e1e6f4"), 0.75));
+    return img;
+  },
+};
+
+// ------------------------------------------------------------------ warehouse: plank floor, concrete pillars, sacks
+
+const warehouse: TileSet = {
+  floor(tone, detail) {
+    const base = hex(tone ? "#a87a4c" : "#b48656");
+    const img = fill(base);
+    const r = rng(131 + tone);
+    for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) if (r() < 0.08) img.set(x, y, mix(base, hex("#7a522c"), 0.4)); // grain
+    for (const y of [0, 5, 10]) img.rect(0, y, T, 1, shade(base, 0.7)); // seams between planks
+    for (const [x, y] of [[5, 1], [11, 6], [3, 11]]) img.rect(x, y, 1, 4, shade(base, 0.72)); // plank ends
+    if (detail) {
+      // nail heads
+      for (const [x, y] of [[2, 3], [13, 8], [8, 13]]) {
+        img.set(x, y, hex("#d8d0c0"));
+        img.set(x + 1, y + 1, shade(base, 0.6));
+      }
+    }
+    return img;
+  },
+  hard() {
+    // a concrete pillar with a band of yellow paint round it
+    const img = new Img(T, T);
+    const [top, front, paint] = key("warehouse").block;
+    img.rect(0, 0, T, 11, top);
+    const r = rng(141);
+    for (let i = 0; i < 18; i++) img.set(Math.floor(r() * T), Math.floor(r() * 11), r() < 0.5 ? hex("#8a909a") : hex("#b0b6c0"));
+    img.rect(0, 0, T, 1, hex("#c6ccd4"));
+    img.rect(0, 0, 1, 11, hex("#b8bec8"));
+    img.rect(T - 1, 0, 1, 11, hex("#62686f"));
+    img.rect(0, 11, T, 5, front);
+    img.rect(0, 12, T, 2, paint);
+    img.rect(0, 11, T, 1, hex("#8a909a"));
+    img.rect(0, 15, T, 1, hex("#3e434a"));
+    return img;
+  },
+  soft() {
+    // a pile of sacks: two below, one on top
+    const img = warehouse.floor(0, false);
+    const [sack, lit, dim, tie] = key("warehouse").brick;
+    for (const [cx, cy, rx, ry] of [[4.5, 11, 4, 3.5], [11, 11, 4, 3.5], [7.5, 5.5, 4.5, 3.6]]) {
+      for (let y = 0; y < T; y++) {
+        for (let x = 0; x < T; x++) {
+          const d = Math.hypot((x - cx) / rx, (y - cy) / ry);
+          if (d > 1) continue;
+          img.set(x, y, d > 0.82 ? tie : y < cy - 1 ? lit : y > cy + 1 ? dim : sack);
+        }
+      }
+      img.set(Math.round(cx), Math.round(cy - ry) + 1, tie); // the tied neck
+    }
+    img.rect(2, 15, 12, 1, shade(hex("#b48656"), 0.6));
+    return img;
+  },
+};
+
+// ------------------------------------------------------------------ volcano: basalt, obsidian, cooling lava rock
+
+const volcano: TileSet = {
+  floor(tone, detail) {
+    const base = hex(tone ? "#3a3134" : "#433a3d");
+    const img = fill(base);
+    const r = rng(151 + tone);
+    for (let i = 0; i < 16; i++) img.set(Math.floor(r() * T), Math.floor(r() * T), r() < 0.5 ? shade(base, 0.8) : mix(base, hex("#7a6a6e"), 0.4));
+    for (let i = 0; i < 2; i++) img.set(Math.floor(r() * T), Math.floor(r() * T), r() < 0.5 ? hex("#ff7a1a") : hex("#ffb347")); // embers
+    img.rect(0, 0, T, 1, mix(base, hex("#7a6a6e"), 0.35));
+    img.rect(0, T - 1, T, 1, shade(base, 0.65));
+    img.rect(T - 1, 0, 1, T, shade(base, 0.7));
+    if (detail) {
+      // a crack with a glow at the bottom
+      let x = 4 + Math.floor(r() * 6);
+      for (let y = 3; y < 13; y++) {
+        img.set(x, y, y % 3 === 0 ? hex("#ff5a1a") : hex("#1e1618"));
+        if (r() < 0.45) x += r() < 0.5 ? 1 : -1;
+      }
+    }
+    return img;
+  },
+  hard() {
+    // obsidian: glassy black-violet with a sharp glint
+    const img = new Img(T, T);
+    const [top, front, glint] = key("volcano").block;
+    img.rect(0, 0, T, 11, top);
+    for (let i = 0; i < 6; i++) img.set(3 + i, 8 - i, glint);
+    img.set(4, 8, hex("#ffffff"));
+    img.rect(0, 0, T, 1, hex("#6a5a7a"));
+    img.rect(0, 0, 1, 11, hex("#54466a"));
+    img.rect(T - 1, 0, 1, 11, hex("#140e1a"));
+    img.rect(0, 11, T, 5, front);
+    for (const [x, y] of [[4, 12], [10, 13], [13, 12]]) img.set(x, y, hex("#4a3a5a"));
+    img.rect(0, 11, T, 1, hex("#2c2236"));
+    img.rect(0, 15, T, 1, hex("#0c080f"));
+    return img;
+  },
+  soft() {
+    // lumps of lava rock that haven't quite cooled: glowing seams between them
+    const img = new Img(T, T);
+    const [rock, lit, dark, glow] = key("volcano").brick;
+    img.rect(0, 0, T, T, glow);
+    brickCourses(
+      img,
+      [
+        { y: 0, h: 4, brick: rock, lit, dim: dark, mortar: glow, off: 0 },
+        { y: 5, h: 4, brick: hex("#6e3424"), lit, dim: dark, mortar: hex("#ff5a1a"), off: 4 },
+        { y: 10, h: 5, brick: hex("#5a2a1e"), lit: hex("#8a4a32"), dim: hex("#3a1a12"), mortar: glow, off: 0 },
+      ],
+      6,
+      rng(161),
+    );
+    img.rect(0, 15, T, 1, hex("#2a120c"));
+    return img;
+  },
+};
+
+const SETS: Record<TileTheme, TileSet> = { garden, factory, temple, snow, assembly, space, ice, warehouse, volcano };
 
 export function tileSheet(theme: TileTheme): Img {
   const set = SETS[theme];

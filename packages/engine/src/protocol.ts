@@ -127,13 +127,18 @@ export interface SnapshotChanges {
   bombs: (Partial<Bomb> & Pick<Bomb, "id">)[];
 }
 
+/** The board: what stands on each cell and what its floor does. Sent only when it changes. */
+export type Board = Pick<GameState, "tiles" | "floor">;
+
 /**
  * What goes over the wire every tick: the game minus what clients never use (the RNG, so nobody can
- * predict drops, the bomb id counter, whose blast each flame is), with `tiles` only when they changed
- * and, for clients that speak protocol 2, `changes` standing in for `players` and `bombs` between full ones.
+ * predict drops, the bomb id counter, whose blast each flame is), with the board (`tiles` and `floor`)
+ * only when it changed and, for clients that speak protocol 2, `changes` standing in for `players` and
+ * `bombs` between full ones.
  */
-export type GameSnapshot = Omit<GameState, "tiles" | "rng" | "nextBombId" | "flames" | "players" | "bombs"> & {
+export type GameSnapshot = Omit<GameState, "tiles" | "floor" | "rng" | "nextBombId" | "flames" | "players" | "bombs"> & {
   tiles?: Tile[];
+  floor?: number[] | null;
   flames: Omit<Flame, "owner">[];
   players?: Player[];
   bombs?: Bomb[];
@@ -144,8 +149,8 @@ export type GameSnapshot = Omit<GameState, "tiles" | "rng" | "nextBombId" | "fla
  * The snapshot of `game`. With `sent` (players and bombs as last sent, to a client that keeps up with
  * every snapshot) only what changed in them goes; without, or once the players no longer line up, all of them.
  */
-export function toSnapshot(game: GameState, withTiles: boolean, sent: SentLists | null = null): GameSnapshot {
-  const { rng: _rng, nextBombId: _next, tiles, flames, players, bombs, ...rest } = game;
+export function toSnapshot(game: GameState, withBoard: boolean, sent: SentLists | null = null): GameSnapshot {
+  const { rng: _rng, nextBombId: _next, tiles, floor, flames, players, bombs, ...rest } = game;
   const lean: GameSnapshot = { ...rest, flames: flames.map(({ owner: _owner, ...f }) => f) };
   const sameLineUp = sent?.players.length === players.length && sent.players.every((p, i) => p.id === players[i].id);
   if (sent && sameLineUp) {
@@ -160,7 +165,7 @@ export function toSnapshot(game: GameState, withTiles: boolean, sent: SentLists 
   } else {
     Object.assign(lean, { players, bombs });
   }
-  return withTiles ? { ...lean, tiles } : lean;
+  return withBoard ? { ...lean, tiles, floor } : lean;
 }
 
 const sameValue = (a: unknown, b: unknown) =>
@@ -176,12 +181,12 @@ function changedFields<T extends object>(before: T, after: T): Partial<T> | null
 }
 
 /**
- * Rebuilds a full state from a snapshot, the last tiles received and the players and bombs as of the
+ * Rebuilds a full state from a snapshot, the last board received and the players and bombs as of the
  * previous snapshot (which its `changes` apply to). Flames come without their owner (only the server
- * credits knockouts), and a server from before the countdown sends no `goTick`. Null when the snapshot
- * only has changes and there is nothing to apply them to.
+ * credits knockouts); a server from before the countdown sends no `goTick`, one from before special
+ * floors no `floor`. Null when the snapshot only has changes and there is nothing to apply them to.
  */
-export function fromSnapshot(snap: GameSnapshot, lastTiles: Tile[], last: SentLists | null = null): GameState | null {
+export function fromSnapshot(snap: GameSnapshot, lastBoard: Board, last: SentLists | null = null): GameState | null {
   const { changes, ...rest } = snap;
   let { players, bombs } = snap;
   if (changes) {
@@ -195,7 +200,8 @@ export function fromSnapshot(snap: GameSnapshot, lastTiles: Tile[], last: SentLi
     ...rest,
     players,
     bombs,
-    tiles: snap.tiles ?? lastTiles,
+    tiles: snap.tiles ?? lastBoard.tiles,
+    floor: snap.tiles ? (snap.floor ?? null) : lastBoard.floor,
     flames: snap.flames.map((f) => ({ ...f, owner: "" })),
     goTick: snap.goTick ?? 0,
     rng: 0,

@@ -82,3 +82,14 @@ export const FALL_INTERVAL_TICKS = 4;
 /** kicker: its bombs slide one tile every tick */
 export const PET_KICK_INTERVAL_TICKS = 1;
 export const FAST_FACTOR = 1.9;
+/** conveyor belts carry whoever stands on them this fast (tiles per second): slower than walking, so one can walk against them */
+export const BELT_SPEED = 2;
+/** belts move the bombs and items lying on them one tile every this many ticks */
+export const BELT_CARRY_TICKS = 15;
+/** leaning on a crate this many ticks shoves it a tile */
+export const PUSH_TICKS = 8;
+/** how far off a crate's lane (in tiles) a bomber may stand and still push it */
+export const PUSH_ALIGN = 0.25;
+/** lava vents all erupt every this many ticks of play; the client shows them glowing for VENT_WARN_TICKS before */
+export const VENT_PERIOD_TICKS = 5 * TICK_RATE;
+export const VENT_WARN_TICKS = TICK_RATE;

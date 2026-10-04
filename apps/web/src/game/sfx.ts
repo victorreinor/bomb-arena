@@ -67,6 +67,15 @@ export function playSounds(events: GameEvent[], me?: string) {
       case "blockFall":
         audio.sfx("thud");
         break;
+      case "warp":
+        audio.sfx("warp");
+        break;
+      case "cratePush":
+        audio.sfx("push");
+        break;
+      case "eruption":
+        audio.sfx("eruption");
+        break;
       case "petLand":
         audio.sfx("land");
         break;

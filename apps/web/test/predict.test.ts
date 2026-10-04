@@ -58,6 +58,50 @@ describe("Predictor over a pretend network", () => {
     expect(mine(end).x).toBeCloseTo(server.x, 3); // the eased correction has faded out on screen too
   });
 
+  test.each([
+    ["riding a belt and walking against it", "assembly", [4.5, 3.5], [[0, 0, 1000], [-1, 0, 1000], [0, 1, 400], [1, 0, 600]]],
+    ["through a portal", "portals", [5.5, 1.5], [[1, 0, 900], [0, -1, 500], [-1, 0, 700]]],
+    ["sliding across the ice", "lake", [2.5, 3.5], [[1, 0, 300], [0, 0, 2500], [0, 1, 500], [-1, 0, 400]]],
+    ["shoving crates", "warehouse", [3.5, 3.5], [[1, 0, 2500], [0, 1, 500]]],
+  ] as const)("agrees with the server %s", (_, mapId, at, moves) => {
+    const room = startedMatch({ mapId });
+    const me = room.game!.players.find((p) => p.id === "u1")!;
+    [me.x, me.y] = at;
+    const lb = new Loopback(room, "u1", BRAZIL);
+    lb.run(1000);
+    const frames: Frame[] = [];
+    for (const [dx, dy, ms] of [...moves, [0, 0, 3000] as const]) {
+      lb.hold(dx, dy);
+      frames.push(...lb.run(ms));
+    }
+    expect(frames.every((f) => f.prediction !== null)).toBe(true);
+    const corrections = frames.map((f) => Math.hypot(f.prediction!.correction.x, f.prediction!.correction.y));
+    expect(Math.max(...corrections)).toBeLessThanOrEqual(TICK_WALK + 1e-9);
+    expect([me.x, me.y]).not.toEqual(at);
+    expect(frames.at(-1)!.prediction!.player.x).toBeCloseTo(me.x, 9);
+    expect(frames.at(-1)!.prediction!.player.y).toBeCloseTo(me.y, 9);
+  });
+
+  test("a crate we shove moves on screen with our bomber, not a round trip later", () => {
+    const room = startedMatch({ mapId: "warehouse" });
+    const me = room.game!.players.find((p) => p.id === "u1")!;
+    [me.x, me.y] = [3.5, 3.5];
+    const lb = new Loopback(room, "u1", BRAZIL);
+    lb.run(1000);
+    lb.hold(1, 0);
+    const frames = lb.run(1500);
+    const crateAt = (f: Frame, x: number) => f.shown!.tiles[3 * f.shown!.width + x] === 3;
+    const shown = frames.findIndex((f) => !crateAt(f, 5));
+    const played = frames.findIndex((f) => !crateAt({ ...f, shown: f.latest }, 5));
+    expect(shown).toBeGreaterThan(0);
+    expect(played - shown).toBeGreaterThanOrEqual(6); // the server's word on it comes a good 100 ms later
+    // and the bomber is never drawn inside it (a hair over, from easing a correction, at most)
+    for (const f of frames) {
+      const p = mine(f);
+      expect(f.shown!.tiles[Math.floor(p.y) * f.shown!.width + Math.floor(p.x + 0.38 - 0.1)]).not.toBe(3);
+    }
+  });
+
   test("a bomb shows up and sounds the moment it is laid, once, on the cell where the server puts it", () => {
     const lb = connected();
     lb.hold(1, 0);
@@ -144,6 +188,7 @@ describe("PredictedView", () => {
     fresh: [],
     taken: [],
     reaching: [],
+    tiles: game.tiles,
     ...extra,
   });
   const drawnX = (view: GameState) => view.players.find((p) => p.id === "p1")!.x;
