@@ -4,7 +4,7 @@
 - **Supabase** fora do MVP; entra para contas/ranking (Fase 6).
 - **Engine pura e determinística** (`packages/engine`) compartilhada por servidor (autoritativa) e cliente (predição). Tick de 30 Hz. Estado serializável em JSON; RNG mulberry32 dentro do estado.
 - **Testes com `bun test`** (em vez de Vitest) — a engine é TS puro, sem DOM.
-- **Arte original** gerada por script (`tools/make-sprites.ts`), células de 16x16; qualquer PNG pode ser trocado por arte desenhada à mão sem mudar código. Sem sprites Hudson/Konami e sem usar "Bomberman" no nome público (risco de takedown). Nome provisório: "Bomb Arena".
+- **Arte original** gerada por script (`tools/make-sprites.ts`), células de 16x16; qualquer PNG pode ser trocado por arte desenhada à mão sem mudar código. Sem sprites Hudson/Konami e sem usar "Bomberman" no nome público (risco de takedown). O nome é "Bomb Arena": começou provisório e virou o oficial em 04/10/2026, junto com a pasta do projeto e os pacotes `@bomb-arena/*`.
 - **Chamas** desenhadas proceduralmente no canvas (máscara de braços por tile), não por sprite.
 - **Controle**: cliente envia só inputs (direção + bomba por borda); a direção mais recente vence, como num d-pad.
 - **WebSockets simples (sem hibernation)** no Durable Object: o loop de 30 Hz precisa ficar vivo e o estado da sala é só em memória; a sala morre quando fica vazia. Consumo no free tier: ~128 MB × tempo conectado (limite ≈ 28 h/dia de salas abertas).

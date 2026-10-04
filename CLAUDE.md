@@ -25,7 +25,7 @@ Use Bun (`bun install`) e o Node do `.nvmrc` (24.21.0). Rode tudo a partir da ra
 | `bun run typecheck` | `tsc` na engine, no cliente e no servidor |
 | `bun run build` | Build de produção do cliente (é o que a Vercel roda) |
 | `bun run e2e [ws://localhost:8787]` | Teste ponta a ponta contra um servidor rodando |
-| `bun run sprites` | Gera de novo os PNGs em `apps/web/public/sprites` |
+| `bun run sprites` | Gera de novo os PNGs em `apps/web/public/sprites` e as figuras do README em `.github/readme` |
 | `cd apps/server && bunx wrangler deploy` | Publica o servidor (quem roda é o usuário, veja abaixo) |
 
 O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja definida (na Vercel ela aponta para o Worker). Atalhos que só valem no modo local: `?itens=todos`, `?pet=runner|jumper|pusher|kicker`, `?vinganca=1` e `?tempo=<segundos>`.
@@ -37,6 +37,7 @@ O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja 
 - `apps/web`: React 19 + Vite + Canvas 2D. O React cuida das telas e do HUD; o jogo é desenhado num loop de `requestAnimationFrame`.
 - `tools`: o gerador de sprites (`make-sprites.ts` com `bomber-art.ts`, `pet-art.ts`, `tile-art.ts` e `png.ts`) e o `e2e.ts`.
 - `docs`: o roadmap, as decisões, a arquitetura e `sprites-feitas.html` (as três propostas de boneco; a escolhida foi a "Clássico").
+- `.github/readme`: as figuras do README. As sprites ampliadas saem do `bun run sprites`; o `gameplay.gif` é a gravação de uma partida contra bots, refeita à mão quando o visual mudar muito.
 
 ## Regras que não podem quebrar
 
@@ -63,7 +64,7 @@ O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja 
 
 ## Estilo de código
 
-- TypeScript `strict`, ESM e Bun workspaces (`@bomberman/engine` é importado direto do código-fonte, sem build).
+- TypeScript `strict`, ESM e Bun workspaces (`@bomb-arena/engine` é importado direto do código-fonte, sem build).
 - Funções e constantes exportadas levam JSDoc curto (`/** … */`) explicando o que fazem e o porquê. Constantes ajustáveis têm nome e unidade no comentário (ticks, casas, ms) e ficam em `constants.ts` ou no topo do arquivo; nada de números mágicos.
 - Comentários são poucos e explicam a intenção, não repetem o código. Imite o arquivo ao redor.
 - Prefira estender o que já existe (`blastCells`, `solidFor`, `canPlaceAt`, `lerpPlayer`, `combineInputs`…) a criar cópias parecidas.

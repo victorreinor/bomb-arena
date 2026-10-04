@@ -111,7 +111,8 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 - O boneco é montado com carimbos ASCII (cabeça por direção, tronco, braços e pernas por pose), cada um com contorno próprio. Quadros virados para a esquerda são os da direita espelhados na hora de desenhar.
 - Os pets são formas sombreadas em camadas; os cenários usam `THEME_COLORS` (também usadas nos destroços) e `nextRandom`, então o resultado é sempre igual.
-- `png.ts` tem `Img`, `fromAscii`, `hex`, `mix`, `shade`, `lighten` e um codificador PNG próprio (sem dependências).
+- `png.ts` tem `Img`, `fromAscii`, `hex`, `mix`, `shade`, `lighten` e um codificador PNG próprio (sem dependências), que também faz PNG animado (`encodeApng`).
+- O fim do `make-sprites.ts` recorta das folhas e amplia as figuras do README (`.github/readme`): o boneco andando e o sapo pulando do título, as quatro cores comemorando, os pets e os itens. Assim elas acompanham qualquer mudança na arte.
 - Qualquer PNG pode ser trocado por arte feita à mão, desde que mantenha o formato.
 
 ## Receitas
