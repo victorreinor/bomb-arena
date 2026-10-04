@@ -4,6 +4,7 @@ import {
   bombRangeFor,
   borderRing,
   canDropBomb,
+  canPlaceAt,
   nearestBorderIndex,
   playerSpeed,
   solidFor,
@@ -242,10 +243,16 @@ function explore(state: GameState, p: Player, danger: number[], start: number, m
   return out;
 }
 
-/** How worthwhile a bomb dropped on `cell` would be: bricks it breaks, enemies it reaches. */
+/**
+ * How worthwhile a bomb dropped on `cell` would be: bricks it breaks, enemies it reaches. Nothing where the
+ * rules won't let a bomb be laid (inside a brick, for one with wall-pass).
+ */
 function bombValue(state: GameState, p: Player, cell: number, enemyCells: ReadonlySet<number>): number {
+  const x = cell % state.width;
+  const y = Math.floor(cell / state.width);
+  if (!canPlaceAt(state, x, y)) return 0;
   let value = 0;
-  for (const c of blastCells(state, cell % state.width, Math.floor(cell / state.width), bombRangeFor(p))) {
+  for (const c of blastCells(state, x, y, bombRangeFor(p))) {
     if (enemyCells.has(c)) value += 4;
     else if (state.tiles[c] === TILE.SOFT) value += 1;
   }

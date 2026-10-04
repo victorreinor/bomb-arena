@@ -418,7 +418,8 @@ function overlapsTile(px: number, py: number, tx: number, ty: number): boolean {
   return Math.abs(px - (tx + 0.5)) < reach && Math.abs(py - (ty + 0.5)) < reach;
 }
 
-function canPlaceAt(state: GameState, x: number, y: number): boolean {
+/** Whether a bomb may be laid on this tile: open floor, no bomb, no fire (a wall-passer standing in a brick can't). */
+export function canPlaceAt(state: GameState, x: number, y: number): boolean {
   return tileAt(state, x, y) === TILE.EMPTY && !bombAt(state, x, y) && !flameAt(state, x, y);
 }
 

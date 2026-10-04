@@ -169,6 +169,15 @@ describe("bot", () => {
     expect(run(true)).not.toBe(3.5);
   });
 
+  // it used to stand there pressing the bomb key forever: no bomb may be laid inside a brick
+  test("with wall-pass, a bot inside a brick goes and bombs from open floor", () => {
+    const s = makeGame(["#########", "#1......#", "#.#.#.#.#", "#.+++...#", "#.#.#.#.#", "#......2#", "#########"]);
+    Object.assign(s.players[0], { x: 3.5, y: 3.5, wallPass: true });
+    const firstId = s.nextBombId;
+    play(s, ["p1"], 5 * TICK_RATE);
+    expect(s.nextBombId).toBeGreaterThan(firstId);
+  });
+
   test("two bombing spots without a way out don't have the bot pacing between them", () => {
     // fire still burning on the only way out: neither (2,1) nor (3,1) is a safe place to drop a bomb
     const s = makeGame(["#######", "#..1+.#", "#.#+#.#", "#.....#", "#....2#", "#######"]);
