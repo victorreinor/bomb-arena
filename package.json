@@ -1,0 +1,24 @@
+{
+  "name": "bomberman-online",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "bun run --cwd apps/web dev",
+    "build": "bun run --cwd apps/web build",
+    "test": "bun test packages",
+    "typecheck": "tsc -p packages/engine --noEmit && tsc -p apps/web --noEmit && tsc -p apps/server --noEmit",
+    "sprites": "bun tools/make-sprites.ts",
+    "dev:server": "bun run --cwd apps/server dev",
+    "e2e": "bun tools/e2e.ts",
+    "dev:all": "bun run --filter './apps/*' dev"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  }
+}
