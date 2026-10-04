@@ -21,6 +21,7 @@
   <img src="https://img.shields.io/badge/Cloudflare-Durable%20Objects-F38020?logo=cloudflare&logoColor=white" alt="Cloudflare Durable Objects">
   <img src="https://img.shields.io/badge/Vercel-cliente-000000?logo=vercel&logoColor=white" alt="Vercel">
   <img src="https://img.shields.io/badge/custo-R%24%200%2Fm%C3%AAs-2ea44f" alt="Custo: R$ 0 por mês">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licen%C3%A7a-PolyForm%20Strict-6e7781" alt="Licença: PolyForm Strict"></a>
 </p>
 
 <p align="center">
@@ -150,6 +151,15 @@ Quando o protocolo muda, publique o servidor antes de fazer o push do cliente.
 - `docs`: arquitetura, decisões e roadmap
 
 Vai trabalhar no código com um agente de IA? As instruções estão em [CLAUDE.md](CLAUDE.md) (o [AGENTS.md](AGENTS.md) aponta para ele).
+
+## 📜 Licença
+
+O código está à mostra, mas não é open source. A licença é a [PolyForm Strict 1.0.0](https://polyformproject.org/licenses/strict/1.0.0), com uma permissão a mais para pull requests.
+
+- ✅ **Pode:** ler o código, abrir [issues](https://github.com/victorreinor/bomb-arena/issues) com bugs e ideias, sugerir melhorias por pull request, [jogar](https://bomb-arena-ten.vercel.app) e rodar na sua máquina para uso pessoal (estudar, testar, se divertir), sem fins comerciais.
+- ❌ **Não pode:** vender ou usar comercialmente, colocar o jogo online para outras pessoas, redistribuir cópias, criar versões modificadas (fora os pull requests para cá) nem reaproveitar código, arte ou sons em outro projeto.
+
+Os termos completos estão em [LICENSE](LICENSE). Quer usar para outra coisa? Abra uma issue e pergunte.
 
 <p align="center">
   <img src=".github/readme/pets.png" height="88" alt="Ema, sapo, tatu e jumento pulando">

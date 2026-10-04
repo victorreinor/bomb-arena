@@ -92,6 +92,7 @@ Também na fila, já listados nas fases abaixo: bots usarem pets e itens especia
 ## Documentação
 - [x] `CLAUDE.md` (guia para agentes de IA: comandos, regras, fluxo de trabalho, armadilhas), `AGENTS.md` apontando para ele e `docs/ARCHITECTURE.md` (como funciona por dentro e receitas)
 - [x] README de vitrine: título com o boneco andando e o sapo pulando, GIF de uma partida contra bots, o que tem no jogo, a arquitetura com diagrama e as tecnologias. As figuras saem do `bun run sprites` (`.github/readme`); descrição e tópicos do repositório no GitHub. "Bomb Arena" virou o nome oficial também no código (pacotes `@bomb-arena/*`)
+- [x] Licença: PolyForm Strict 1.0.0 com permissão para pull requests (`LICENSE`): uso pessoal e não comercial pode; vender, modificar, redistribuir ou pôr online não. Resumo e selo no README
 
 ## Dívida técnica (da revisão de código; nenhuma urgente)
 - [ ] Uma só mensagem `settings` para as opções do lobby (hoje uma por opção) — fazer quando entrar a próxima opção
