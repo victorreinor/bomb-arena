@@ -10,8 +10,8 @@
   "scripts": {
     "dev": "bun run --cwd apps/web dev",
     "build": "bun run --cwd apps/web build",
-    "test": "bun test packages",
-    "typecheck": "tsc -p packages/engine --noEmit && tsc -p apps/web --noEmit && tsc -p apps/server --noEmit",
+    "test": "bun test packages apps/web",
+    "typecheck": "tsc -p packages/engine --noEmit && tsc -p apps/web --noEmit && tsc -p apps/server --noEmit && tsc -p apps/web/test --noEmit",
     "sprites": "bun tools/make-sprites.ts",
     "dev:server": "bun run --cwd apps/server dev",
     "e2e": "bun tools/e2e.ts",

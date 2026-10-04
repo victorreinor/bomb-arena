@@ -73,15 +73,15 @@ export function run(s: GameState, ticks: number, inputs: Inputs = {}) {
 
 /**
  * A 2-player room (u1 hosting, u2) whose match has started through client messages and is past its
- * countdown, on an arena cleared of soft blocks so nothing gets in the way.
+ * countdown (still in it with `inCountdown`), on an arena cleared of soft blocks so nothing gets in the way.
  */
-export function startedMatch(): RoomState {
+export function startedMatch({ inCountdown = false } = {}): RoomState {
   const room = createRoom("BCDFG", 2);
   joinRoom(room, "u1", "A");
   joinRoom(room, "u2", "B");
   handleClientMessage(room, "u2", { t: "ready", ready: true }, () => 1);
   if (!handleClientMessage(room, "u1", { t: "start" }, () => 1)) throw new Error("the match didn't start");
-  pastCountdown(room);
+  if (!inCountdown) pastCountdown(room);
   const g = room.game!;
   g.tiles = g.tiles.map((t) => (t === TILE.SOFT ? TILE.EMPTY : t));
   return room;
