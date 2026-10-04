@@ -19,19 +19,9 @@ import {
   dangerMap,
   step,
   type BotLevel,
-  type GameState,
   type Inputs,
 } from "../src";
-import { corridor, makeGame, send, testBomb, testFlame } from "./helpers";
-
-/** Runs a game where the listed ids are bots and everyone else stands still. */
-function play(s: GameState, bots: string[], ticks: number, level?: BotLevel) {
-  for (let i = 0; i < ticks && s.phase === "playing"; i++) {
-    const inputs: Inputs = {};
-    for (const id of bots) inputs[id] = botInput(s, id, level);
-    step(s, inputs);
-  }
-}
+import { corridor, makeGame, play, send, testBomb, testFlame } from "./helpers";
 
 /** p1 in the middle of a corridor, standing on a bomb of its own. */
 function onOwnBomb() {

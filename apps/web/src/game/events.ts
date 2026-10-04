@@ -1,14 +1,13 @@
 import {
   ABILITY_FIELDS,
   DIR_VEC,
-  FLOOR,
   TILE,
-  VENT_PERIOD_TICKS,
   borderRing,
   countingDown,
-  dirFrom,
+  eruptionsBy,
   fallOrder,
   isPortal,
+  liveVents,
   type AbilityKind,
   type Bomb,
   type Dir,
@@ -17,6 +16,7 @@ import {
   type Player,
   type PowerUpKind,
 } from "@bomberman/engine";
+import { warped } from "./snapshots";
 
 /** What a bomber is caught doing for a moment (the sprite strikes the pose) */
 export type ActionPose = "kick" | "punch" | "throw" | "place";
@@ -86,12 +86,9 @@ function pickedKind(before: Player, after: Player): PowerUpKind | null {
   return null;
 }
 
-/** Whether whatever moved from `a` to `b` in a tick came out of a portal (too far to have walked or slid it). */
-const warped = (state: GameState, a: { x: number; y: number }, b: { x: number; y: number }) =>
-  Math.abs(b.x - a.x) + Math.abs(b.y - a.y) > 1.5 && isPortal(state, Math.floor(b.x), Math.floor(b.y));
-
-/** How many times the lava vents have erupted by `tick` (they go off every VENT_PERIOD_TICKS after "Go!"). */
-const eruptions = (tick: number, goTick: number) => Math.max(0, Math.floor((tick - goTick) / VENT_PERIOD_TICKS));
+/** Whether whatever moved from `a` to `b` in a tick (in `state`) came out of a portal. */
+const outOfPortal = (state: GameState, a: { x: number; y: number }, b: { x: number; y: number }) =>
+  warped(a, b) && isPortal(state, Math.floor(b.x), Math.floor(b.y));
 
 /** What happened between two consecutive game states, for sound and visual effects. */
 export function diffGame(prev: GameState, next: GameState): GameEvent[] {
@@ -155,7 +152,7 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
       if (by) events.push({ type: "pose", id: by, pose: before.held ? "throw" : "punch" });
     }
     if (before.flight && !b.flight) events.push({ type: "land", x: b.x, y: b.y, power: b.power });
-    if (!b.flight && !before.flight && warped(next, before, b)) events.push({ type: "warp", from: { x: before.x + 0.5, y: before.y + 0.5 }, to: { x: b.x + 0.5, y: b.y + 0.5 } });
+    if (!b.flight && !before.flight && outOfPortal(next, before, b)) events.push({ type: "warp", from: { x: before.x + 0.5, y: before.y + 0.5 }, to: { x: b.x + 0.5, y: b.y + 0.5 } });
     if (b.held && !before.held) events.push({ type: "lift", x: b.x, y: b.y });
   }
 
@@ -171,7 +168,7 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
       continue;
     }
     if (!p.alive) continue;
-    if (!p.jump && !before.jump && warped(next, before, p)) events.push({ type: "warp", from: { x: before.x, y: before.y }, to: { x: p.x, y: p.y } });
+    if (!p.jump && !before.jump && outOfPortal(next, before, p)) events.push({ type: "warp", from: { x: before.x, y: before.y }, to: { x: p.x, y: p.y } });
     if (p.pet && !before.pet) events.push({ type: "mount", x: p.x, y: p.y, pet: p.pet.kind });
     if (before.pet && !p.pet) events.push({ type: "petLost", x: p.x, y: p.y, pet: before.pet.kind, facing: p.facing });
     if (p.pet && before.pet && p.pet.cooldown > before.pet.cooldown) {
@@ -191,13 +188,13 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
     if (t !== TILE.CRATE || prev.tiles[i] !== TILE.EMPTY) return;
     const x = i % next.width;
     const y = Math.floor(i / next.width);
-    for (const d of Object.values(DIR_VEC)) {
+    for (const [dir, d] of Object.entries(DIR_VEC) as [Dir, (typeof DIR_VEC)[Dir]][]) {
       const from = (y - d.dy) * next.width + x - d.dx;
-      if (prev.tiles[from] === TILE.CRATE && next.tiles[from] === TILE.EMPTY) events.push({ type: "cratePush", x, y, dir: dirFrom(d.dx, d.dy)! });
+      if (prev.tiles[from] === TILE.CRATE && next.tiles[from] === TILE.EMPTY) events.push({ type: "cratePush", x, y, dir });
     }
   });
-  if (next.floor && eruptions(next.tick, next.goTick) > eruptions(prev.tick, next.goTick)) {
-    const cells = next.floor.flatMap((f, i) => (f === FLOOR.VENT && next.tiles[i] === TILE.EMPTY ? [{ x: i % next.width, y: Math.floor(i / next.width) }] : []));
+  if (next.floor && eruptionsBy(next.tick, next.goTick) > eruptionsBy(prev.tick, next.goTick)) {
+    const cells = liveVents(next).map((i) => ({ x: i % next.width, y: Math.floor(i / next.width) }));
     events.push({ type: "eruption", cells });
   }
 

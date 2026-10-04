@@ -8,7 +8,7 @@
  */
 import { THEME_COLORS, TILE_PX as T, TILE_SHEET, type TileName, type TileTheme } from "../apps/web/src/game/sprites";
 import { nextRandom } from "../packages/engine/src";
-import { Img, hex, mix, shade, type RGBA } from "./png";
+import { Img, ellipse, hex, mix, shade, type RGBA } from "./png";
 
 // ------------------------------------------------------------------ helpers
 
@@ -517,14 +517,10 @@ const ice: TileSet = {
     const img = ice.floor(0, false);
     const [snowball, lit, dim, outline] = key("ice").brick;
     for (const [cx, cy, rad] of [[7.5, 10.5, 5], [7.5, 4.5, 3.4]]) {
-      for (let y = 0; y < T; y++) {
-        for (let x = 0; x < T; x++) {
-          const d = Math.hypot(x - cx, y - cy);
-          if (d > rad) continue;
-          const light = (cx - x) * 0.6 + (cy - y) * 0.8;
-          img.set(x, y, d > rad - 1 ? outline : light > 1.5 ? lit : light < -1.5 ? dim : snowball);
-        }
-      }
+      ellipse(img, cx, cy, rad, rad, (_d, x, y) => {
+        const light = (cx - x) * 0.6 + (cy - y) * 0.8;
+        return Math.hypot(x - cx, y - cy) > rad - 1 ? outline : light > 1.5 ? lit : light < -1.5 ? dim : snowball;
+      });
     }
     for (const [x, y] of [[6, 4], [9, 4], [7, 9], [7, 11]]) img.set(x, y, hex("#2a2a35"));
     img.rect(8, 5, 2, 1, hex("#ff8a1e"));
@@ -573,13 +569,7 @@ const warehouse: TileSet = {
     const img = warehouse.floor(0, false);
     const [sack, lit, dim, tie] = key("warehouse").brick;
     for (const [cx, cy, rx, ry] of [[4.5, 11, 4, 3.5], [11, 11, 4, 3.5], [7.5, 5.5, 4.5, 3.6]]) {
-      for (let y = 0; y < T; y++) {
-        for (let x = 0; x < T; x++) {
-          const d = Math.hypot((x - cx) / rx, (y - cy) / ry);
-          if (d > 1) continue;
-          img.set(x, y, d > 0.82 ? tie : y < cy - 1 ? lit : y > cy + 1 ? dim : sack);
-        }
-      }
+      ellipse(img, cx, cy, rx, ry, (d, _x, y) => (d > 0.82 ? tie : y < cy - 1 ? lit : y > cy + 1 ? dim : sack));
       img.set(Math.round(cx), Math.round(cy - ry) + 1, tie); // the tied neck
     }
     img.rect(2, 15, 12, 1, shade(hex("#b48656"), 0.6));

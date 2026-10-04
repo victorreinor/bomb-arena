@@ -22,15 +22,13 @@ export function PlayerStats({ p }: { p: Player }) {
       {ABILITIES.filter(([, key]) => p[key]).map(([kind]) => (
         <ItemIcon key={kind} kind={kind} size={18} />
       ))}
-      {p.lineCharges > 0 && (
-        <span className="line-charges">
-          <ItemIcon kind="line" size={18} />×{p.lineCharges}
-        </span>
-      )}
-      {p.mineCharges > 0 && (
-        <span className="line-charges">
-          <ItemIcon kind="mine" size={18} />×{p.mineCharges}
-        </span>
+      {([["line", p.lineCharges], ["mine", p.mineCharges]] as const).map(
+        ([kind, charges]) =>
+          charges > 0 && (
+            <span key={kind} className="line-charges">
+              <ItemIcon kind={kind} size={18} />×{charges}
+            </span>
+          ),
       )}
       {p.disease && (
         <span className="curse" title={`Maldição: ${DISEASE_NAME[p.disease.kind]}`}>

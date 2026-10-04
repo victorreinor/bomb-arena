@@ -1,5 +1,6 @@
 import {
   FLAME_TICKS,
+  botInput,
   KICK_INTERVAL_TICKS,
   TILE,
   createGame,
@@ -9,6 +10,7 @@ import {
   step,
   stepRoom,
   type Bomb,
+  type BotLevel,
   type ClientMsg,
   type CreateGameOptions,
   type Flame,
@@ -67,6 +69,15 @@ export function testFlame(s: GameState, x: number, y: number, extra: Partial<Fla
   const flame: Flame = { x, y, arms: 0, ticksLeft: FLAME_TICKS, owner: "p2", ...extra };
   s.flames.push(flame);
   return flame;
+}
+
+/** Runs a game where the listed ids are bots (of `level`) and everyone else stands still, until it ends or `ticks` run out. */
+export function play(s: GameState, bots: string[], ticks: number, level?: BotLevel) {
+  for (let i = 0; i < ticks && s.phase === "playing"; i++) {
+    const inputs: Inputs = {};
+    for (const id of bots) inputs[id] = botInput(s, id, level);
+    step(s, inputs);
+  }
 }
 
 /** Advance `ticks` steps with the same inputs every tick. */

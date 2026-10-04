@@ -1,4 +1,5 @@
 import {
+  SnapshotStream,
   TICK_MS,
   TICK_RATE,
   TokenBucket,
@@ -11,15 +12,10 @@ import {
   inputAcks,
   randomSeed,
   stepRoom,
-  toSnapshot,
   type ClientMsg,
   type ErrorCode,
-  type GameSnapshot,
-  type InputAck,
   type RoomState,
-  type SentLists,
   type ServerMsg,
-  type Tile,
 } from "@bomberman/engine";
 
 export interface Env {
@@ -35,27 +31,10 @@ const MESSAGE_BURST = 80;
 /** a client still flooding after this many dropped messages gets disconnected */
 const MAX_DROPPED = 300;
 /**
- * Clients that take changes still get every player and bomb in full this often (in ticks), so one that
- * somehow fell out of step is back in a second.
- */
-const FULL_LISTS_TICKS = TICK_RATE;
-/**
  * A connection we are done with is left this long (ms) for the client to hang up: when the server closes
  * first, workerd logs "Network connection lost". Clients that don't (older ones) are closed after it.
  */
 const HANG_UP_GRACE_MS = 1000;
-
-/**
- * Answers a client's close. At our compatibility date workerd doesn't do it by itself, and until it's
- * answered the browser never reports the socket closed (a refused client would never get to its error).
- */
-function closeBack(ws: WebSocket) {
-  try {
-    ws.close(1000);
-  } catch {
-    // already closed
-  }
-}
 
 /**
  * One instance per room code. Holds the authoritative room + match state and
@@ -75,13 +54,8 @@ interface Session {
 export class Room {
   private room: RoomState | null = null;
   private sessions = new Map<WebSocket, Session>();
-  /** tiles as last broadcast; snapshots only carry tiles when these change (or someone new arrives) */
-  private sentTiles: Tile[] | null = null;
-  private sentRound = -1;
-  /** players and bombs as last broadcast: clients that speak protocol 2 only get what changed in them */
-  private sentLists: SentLists | null = null;
-  /** the input acknowledgements as last broadcast, by player: snapshots only carry the ones that changed */
-  private sentAcks = new Map<string, string>();
+  /** what has been broadcast so far: each state message carries only what changed */
+  private stream = new SnapshotStream();
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastTime = 0;
   private acc = 0;
@@ -139,10 +113,7 @@ export class Room {
         // already closed
       }
     }, HANG_UP_GRACE_MS);
-    ws.addEventListener("close", () => {
-      clearTimeout(timer);
-      closeBack(ws);
-    });
+    ws.addEventListener("close", () => clearTimeout(timer));
   }
 
   private attach(ws: WebSocket, id: string, version: number) {
@@ -154,14 +125,9 @@ export class Room {
       }
     }
     this.sessions.set(ws, { id, bucket: new TokenBucket(MESSAGES_PER_SECOND, MESSAGE_BURST, Date.now()), dropped: 0, version });
-    // the newcomer needs the board, the players and the bombs in full
-    this.sentTiles = null;
-    this.sentLists = null;
+    this.stream.restart(); // the newcomer needs the board, the players and the bombs in full
     ws.addEventListener("message", (e) => this.onMessage(ws, e));
-    ws.addEventListener("close", () => {
-      closeBack(ws);
-      this.onClose(ws);
-    });
+    ws.addEventListener("close", () => this.onClose(ws));
     ws.addEventListener("error", () => this.onClose(ws));
 
     this.send(ws, { t: "welcome", id });
@@ -259,32 +225,15 @@ export class Room {
     // once the podium is up and the last flames are out nothing moves: once a second keeps the countdown going
     const idle = game.phase === "finished" && game.flames.length === 0;
     if (idle && room.resultsTicksLeft % TICK_RATE !== 0) return;
-    if (this.sentRound !== room.round) {
-      this.sentRound = room.round;
-      this.sentTiles = null;
-      this.sentLists = null;
-      this.sentAcks.clear();
-    }
-    const tilesChanged = !this.sentTiles || game.tiles.some((t, i) => t !== this.sentTiles![i]);
-    if (tilesChanged) this.sentTiles = [...game.tiles];
-    const acks: Record<string, InputAck> = {};
-    for (const [id, ack] of Object.entries(inputAcks(room))) {
-      const key = ack.join(":");
-      if (this.sentAcks.get(id) === key) continue;
-      this.sentAcks.set(id, key);
-      acks[id] = ack;
-    }
-    const sent = game.tick % FULL_LISTS_TICKS === 0 ? null : this.sentLists;
-    this.sentLists = structuredClone({ players: game.players, bombs: game.bombs });
-    const state = (snap: GameSnapshot): ServerMsg => ({ t: "state", round: room.round, resultsIn: room.resultsTicksLeft, game: snap, ...(Object.keys(acks).length > 0 && { acks }) });
+    const { acks, snapshot } = this.stream.next(room.round, game, inputAcks(room));
     // older clients get every player and bomb in full; each form is only built if someone needs it
-    let full: string | undefined;
-    let lean: string | undefined;
-    for (const [ws, session] of this.sessions) {
-      const data =
-        session.version >= 2
-          ? (lean ??= JSON.stringify(state(toSnapshot(game, tilesChanged, sent))))
-          : (full ??= JSON.stringify(state(toSnapshot(game, tilesChanged))));
+    const messages = new Map<number, string>();
+    for (const [ws, { version }] of this.sessions) {
+      let data = messages.get(version);
+      if (data === undefined) {
+        const msg: ServerMsg = { t: "state", round: room.round, resultsIn: room.resultsTicksLeft, game: snapshot(version), ...(acks && { acks }) };
+        messages.set(version, (data = JSON.stringify(msg)));
+      }
       this.sendRaw(ws, data);
     }
   }

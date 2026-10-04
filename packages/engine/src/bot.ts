@@ -1,14 +1,15 @@
 import { BOMB_FUSE_TICKS, TICK_RATE, VENT_PERIOD_TICKS } from "./constants";
 import {
+  actionFor,
   beltAt,
   blastCells,
-  bombAt,
   bombRangeFor,
   borderRing,
   canDropBomb,
   canPlaceAt,
   floorAt,
   isBuried,
+  liveVents,
   nearestBorderIndex,
   playerSpeed,
   portalExit,
@@ -93,18 +94,16 @@ export function dangerMap(state: GameState, known: (b: Bomb) => boolean = () => 
   for (const f of state.flames) danger[f.y * state.width + f.x] = 0;
   // lava vents about to erupt (and so, any bomb lying on one)
   const eruption = VENT_PERIOD_TICKS - ventCycle(state);
-  const onVent = (b: Bomb) => floorAt(state, b.x, b.y) === FLOOR.VENT;
-  if (state.floor && eruption <= VENT_DANGER_TICKS) {
-    state.floor.forEach((f, i) => f === FLOOR.VENT && (danger[i] = Math.min(danger[i], eruption)));
-  }
+  if (eruption <= VENT_DANGER_TICKS) for (const i of liveVents(state)) danger[i] = Math.min(danger[i], eruption);
 
   const bombs = state.bombs
     .filter((b) => !b.flight && !b.held && known(b))
     .map((b) => ({
       cell: b.y * state.width + b.x,
       time: Math.min(
-        b.remote && b.owner !== owner ? Math.min(b.ticksLeft, REMOTE_DANGER_TICKS) : b.ticksLeft,
-        onVent(b) ? eruption : NEVER,
+        b.ticksLeft,
+        b.remote && b.owner !== owner ? REMOTE_DANGER_TICKS : NEVER,
+        floorAt(state, b.x, b.y) === FLOOR.VENT ? eruption : NEVER,
       ),
       cells: blastCells(state, b.x, b.y, b.range, b.pierce),
       settled: false,
@@ -250,18 +249,20 @@ function explore(state: GameState, p: Player, danger: number[], start: number, m
     const { cell, dist, first } = out[k];
     const x = cell % state.width;
     const y = Math.floor(cell / state.width);
+    // no cell on the way may be burning when we pass, nor the last one catch fire shortly after we arrive
+    const burns = (c: number, steps: number) => danger[c] !== NEVER && danger[c] < (dist + steps) * ticksPerTile + ticksPerTile * margin;
     for (const d of BLAST_DIRS) {
       const nx = x + d.dx;
       const ny = y + d.dy;
-      if (solidFor(state, p, nx, ny)) continue;
-      const path = stepPath(state, p, nx, ny, d);
-      const end = path[path.length - 1];
-      if (seen[end]) continue;
-      // no cell on the way may be burning when we pass, nor the last one catch fire shortly after we arrive
-      const burns = path.some((c, i) => danger[c] !== NEVER && danger[c] < (dist + 1 + i) * ticksPerTile + ticksPerTile * margin);
-      if (burns) continue;
+      const next = ny * state.width + nx;
+      // most steps end on the cell stepped into; ice and portals carry the bot further
+      const plain = floorAt(state, nx, ny) === FLOOR.PLAIN;
+      if ((plain && seen[next]) || solidFor(state, p, nx, ny)) continue;
+      const path = plain ? null : stepPath(state, p, nx, ny, d);
+      const end = path ? path[path.length - 1] : next;
+      if (seen[end] || (path ? path.some((c, i) => burns(c, i + 1)) : burns(next, 1))) continue;
       seen[end] = 1;
-      out.push({ cell: end, dist: dist + path.length, first: dist === 0 ? ny * state.width + nx : first });
+      out.push({ cell: end, dist: dist + (path?.length ?? 1), first: dist === 0 ? next : first });
     }
   }
   return out;
@@ -361,7 +362,7 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
   brain.fleeing = false;
 
   // out of reach of its remote bombs (and not being carried into it by a belt): set them off, holding still
-  if (detonates(state, p) && danger[carriedTo(state, p, here)] === NEVER) return { ...stepTowards(p, here, width), action: true };
+  if (actionFor(state, p)?.act === "detonate" && danger[carriedTo(state, p, here)] === NEVER) return { ...stepTowards(p, here, width), action: true };
 
   // 2. a good spot to bomb, with an escape route afterwards: make up its mind, settle in the middle, drop
   const canBomb = canDropBomb(p);
@@ -398,15 +399,6 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
 function carriedTo(state: GameState, p: Player, here: number): number {
   const dir = beltAt(state, Math.floor(p.x), Math.floor(p.y));
   return dir ? here + DIR_VEC[dir].dx + DIR_VEC[dir].dy * state.width : here;
-}
-
-/** Whether the action button would now set off one of its remote bombs (rather than lift or punch a bomb at hand). */
-function detonates(state: GameState, p: Player): boolean {
-  if (!p.remote || p.holding !== null || !state.bombs.some((b) => b.owner === p.id && b.remote && !b.flight)) return false;
-  const tx = Math.floor(p.x);
-  const ty = Math.floor(p.y);
-  const d = DIR_VEC[p.facing];
-  return !(p.glove && bombAt(state, tx, ty)) && !(p.punch && bombAt(state, tx + d.dx, ty + d.dy));
 }
 
 /** Somewhere worth going: an item close by, a brick to break, or else the nearest enemy (or a stroll). */

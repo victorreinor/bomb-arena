@@ -528,6 +528,11 @@ function letStandersOff(state: GameState, bomb: Bomb) {
   for (const p of state.players) if (p.alive && overlapsTile(p.x, p.y, bomb.x, bomb.y)) p.passing.push(bomb.id);
 }
 
+/** A bomber who turns up on a bomb (landing from a hop, out of a portal) may walk off it. */
+function letOffBombs(state: GameState, p: Player) {
+  for (const b of state.bombs) if (!b.flight && !b.held && overlapsTile(p.x, p.y, b.x, b.y)) p.passing.push(b.id);
+}
+
 /** Whether a press of the bomb key could lay a bomb right now (wherever it is). */
 export function canDropBomb(p: Player): boolean {
   return p.holding === null && p.disease?.kind !== "noBomb" && p.bombsActive < p.bombsMax;
@@ -595,30 +600,38 @@ function placeBomb(state: GameState, p: Player) {
 
 // ----------------------------------------------------- special abilities
 
-/** The contextual button: throw > lift (glove) > punch > detonate (remote). */
-function doAction(state: GameState, p: Player) {
-  if (p.holding !== null) return void throwBomb(state, p);
+/** What the contextual button does, and to which bomb. */
+export type Action = { act: "throw" } | { act: "lift" | "punch" | "detonate"; bomb: Bomb };
 
+/** What the contextual button would do right now: throw > lift (glove) > punch > detonate (remote); null for nothing. */
+export function actionFor(state: GameState, p: Player): Action | null {
+  if (p.holding !== null) return { act: "throw" };
   const tx = Math.floor(p.x);
   const ty = Math.floor(p.y);
-  if (p.glove) {
-    const under = bombAt(state, tx, ty);
-    if (under) {
-      under.held = p.id;
-      under.slide = null;
-      p.holding = under.id;
+  const under = p.glove ? bombAt(state, tx, ty) : undefined;
+  if (under) return { act: "lift", bomb: under };
+  const d = DIR_VEC[p.facing];
+  const ahead = p.punch ? bombAt(state, tx + d.dx, ty + d.dy) : undefined;
+  if (ahead) return { act: "punch", bomb: ahead };
+  // state.bombs is kept in id order, so the first match is the oldest
+  const oldest = p.remote ? state.bombs.find((b) => b.owner === p.id && b.remote && !b.flight) : undefined;
+  return oldest ? { act: "detonate", bomb: oldest } : null;
+}
+
+function doAction(state: GameState, p: Player) {
+  const action = actionFor(state, p);
+  switch (action?.act) {
+    case "throw":
+      return throwBomb(state, p);
+    case "lift":
+      action.bomb.held = p.id;
+      action.bomb.slide = null;
+      p.holding = action.bomb.id;
       return;
-    }
-  }
-  if (p.punch) {
-    const d = DIR_VEC[p.facing];
-    const ahead = bombAt(state, tx + d.dx, ty + d.dy);
-    if (ahead) return void launchBomb(state, ahead, p.facing);
-  }
-  if (p.remote) {
-    // state.bombs is kept in id order, so the first match is the oldest
-    const next = state.bombs.find((b) => b.owner === p.id && b.remote && !b.flight);
-    if (next) next.ticksLeft = 0;
+    case "punch":
+      return void launchBomb(state, action.bomb, p.facing);
+    case "detonate":
+      action.bomb.ticksLeft = 0;
   }
 }
 
@@ -711,19 +724,8 @@ function usePet(state: GameState, p: Player) {
     }
     case "pusher": {
       // shove the brick block in front one tile further
-      const bx = tx + d.dx;
-      const by = ty + d.dy;
-      const cx = bx + d.dx;
-      const cy = by + d.dy;
-      const landingClear =
-        free(cx, cy) &&
-        !state.powerUps.some((u) => u.x === cx && u.y === cy) &&
-        !state.players.some((o) => o.alive && overlapsTile(o.x, o.y, cx, cy));
-      if (tileAt(state, bx, by) === TILE.SOFT && landingClear) {
-        state.tiles[by * state.width + bx] = TILE.EMPTY;
-        state.tiles[cy * state.width + cx] = TILE.SOFT;
-        used = true;
-      }
+      const brick = { x: tx + d.dx, y: ty + d.dy };
+      used = tileAt(state, brick.x, brick.y) === TILE.SOFT && shove(state, brick, { x: brick.x + d.dx, y: brick.y + d.dy });
       break;
     }
     case "kicker": {
@@ -750,10 +752,7 @@ function advanceJump(state: GameState, p: Player) {
   p.moving = true;
   if (j.ticks < j.total) return;
   p.jump = null;
-  // a bomb may have slid onto the landing spot meanwhile: let the rider walk off it
-  for (const b of state.bombs) {
-    if (!b.flight && !b.held && overlapsTile(p.x, p.y, b.x, b.y)) p.passing.push(b.id);
-  }
+  letOffBombs(state, p); // a bomb may have slid onto the landing spot meanwhile
 }
 
 /** Carried, flying and sliding bombs. */
@@ -793,6 +792,19 @@ const slidesInto = (state: GameState, x: number, y: number) => tileAt(state, x, 
 
 /** Whether anyone (alive) is standing on any part of tile (x, y). */
 const personAt = (state: GameState, x: number, y: number) => state.players.some((p) => p.alive && overlapsTile(p.x, p.y, x, y));
+
+const powerUpAt = (state: GameState, x: number, y: number) => state.powerUps.some((u) => u.x === x && u.y === y);
+
+/**
+ * Shoves the block on `from` (a brick, a crate) onto `to` if there's room: open floor, not a portal, with no
+ * bomb, fire, item or anyone on it. Returns whether it moved.
+ */
+function shove(state: GameState, from: { x: number; y: number }, to: { x: number; y: number }): boolean {
+  if (!canPlaceAt(state, to.x, to.y) || powerUpAt(state, to.x, to.y) || personAt(state, to.x, to.y)) return false;
+  state.tiles[to.y * state.width + to.x] = state.tiles[from.y * state.width + from.x];
+  state.tiles[from.y * state.width + from.x] = TILE.EMPTY;
+  return true;
+}
 
 /**
  * Moves a lying bomb a tile `dir`-wards, out of the far end of a portal if it lands on one, and sets it off
@@ -967,7 +979,7 @@ function takePortal(state: GameState, p: Player, from: number) {
   if (exit === null) return;
   p.x = (exit % state.width) + 0.5;
   p.y = Math.floor(exit / state.width) + 0.5;
-  for (const b of state.bombs) if (!b.flight && !b.held && overlapsTile(p.x, p.y, b.x, b.y)) p.passing.push(b.id);
+  letOffBombs(state, p);
 }
 
 /** A belt carries whoever stands on it along, drawing them onto its lane, unless something is in the way. */
@@ -996,25 +1008,31 @@ function carryOnBelts(state: GameState) {
     if (!dir) continue;
     const x = u.x + DIR_VEC[dir].dx;
     const y = u.y + DIR_VEC[dir].dy;
-    if (canPlaceAt(state, x, y) && !state.powerUps.some((o) => o.x === x && o.y === y)) Object.assign(u, { x, y });
+    if (canPlaceAt(state, x, y) && !powerUpAt(state, x, y)) Object.assign(u, { x, y });
   }
 }
 
 /** Where the match is in the lava vents' cycle: they erupt when it comes round to 0 (counted from "Go!"). */
-export const ventCycle = (state: GameState) =>
-  (((state.tick - state.goTick) % VENT_PERIOD_TICKS) + VENT_PERIOD_TICKS) % VENT_PERIOD_TICKS;
+export const ventCycle = (state: GameState) => wrap(state.tick - state.goTick, VENT_PERIOD_TICKS);
+
+/** How many times the vents have erupted by `tick`, in a match that went "Go!" on `goTick`. */
+export const eruptionsBy = (tick: number, goTick: number) => Math.max(0, Math.floor((tick - goTick) / VENT_PERIOD_TICKS));
+
+/** The vents (cell indices) that erupt: those not covered by a block (a crate shoved on, a stone fallen in sudden death). */
+export function liveVents(state: GameState): number[] {
+  return state.floor?.flatMap((f, i) => (f === FLOOR.VENT && state.tiles[i] === TILE.EMPTY ? [i] : [])) ?? [];
+}
 
 /** Lava vents erupt all together every VENT_PERIOD_TICKS: fire nobody owns on each, setting off any bomb there. */
 function eruptVents(state: GameState) {
   if (!state.floor || ventCycle(state) !== 0) return;
-  state.floor.forEach((f, i) => {
-    if (f !== FLOOR.VENT || state.tiles[i] !== TILE.EMPTY) return;
+  for (const i of liveVents(state)) {
     const x = i % state.width;
     const y = Math.floor(i / state.width);
     addFlame(state, x, y, 0, "");
     const bomb = groundBombAt(state, x, y);
     if (bomb) bomb.ticksLeft = 0;
-  });
+  }
 }
 
 // ---------------------------------------------------------- revenge ghosts
@@ -1141,10 +1159,7 @@ function movePlayer(state: GameState, p: Player, dx: number, dy: number, speedFa
   p.moving = Math.abs(p.x - before.x) > EPS || Math.abs(p.y - before.y) > EPS;
 }
 
-/**
- * Walking into a crate, lined up with it: after PUSH_TICKS of that it moves a tile on, if the tile beyond
- * is open floor (no bomb, item, fire, portal or anyone on it). Returns whether the bomber leans on one.
- */
+/** Walking into a crate, lined up with it: after PUSH_TICKS of that it's shoved a tile on. Returns whether the bomber leans on one. */
 function leanOnCrate(state: GameState, p: Player, main: "x" | "y", d: number): boolean {
   const cross = main === "x" ? "y" : "x";
   const lane = Math.floor(p[cross]);
@@ -1153,14 +1168,7 @@ function leanOnCrate(state: GameState, p: Player, main: "x" | "y", d: number): b
   const at = (k: number) => (main === "x" ? { x: k, y: lane } : { x: lane, y: k });
   const crate = at(ahead);
   if (tileAt(state, crate.x, crate.y) !== TILE.CRATE) return false;
-  if (++p.push < PUSH_TICKS) return true;
-  const to = at(ahead + d);
-  const room = canPlaceAt(state, to.x, to.y) && !state.powerUps.some((u) => u.x === to.x && u.y === to.y) && !personAt(state, to.x, to.y);
-  if (room) {
-    state.tiles[crate.y * state.width + crate.x] = TILE.EMPTY;
-    state.tiles[to.y * state.width + to.x] = TILE.CRATE;
-    p.push = 0;
-  }
+  if (++p.push >= PUSH_TICKS && shove(state, crate, at(ahead + d))) p.push = 0;
   return true;
 }
 

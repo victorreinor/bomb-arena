@@ -131,6 +131,7 @@ export class Predictor {
     if (this.cached?.latest === latest && this.cached.key === key) return this.cached.replay;
 
     const world = structuredClone(latest);
+    world.floor = latest.floor; // never changes, and the engine caches its portal pairs by this very array
     world.nextBombId = latest.bombs.reduce((n, b) => Math.max(n, b.id + 1), 0); // snapshots leave the counter out
     const known = world.nextBombId;
     const me = world.players.find((p) => p.id === this.me)!;

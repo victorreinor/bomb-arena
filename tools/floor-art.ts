@@ -4,18 +4,7 @@
  * from the client's sprites.ts (FLOOR_CELLS, BELT_FRAMES, PORTAL_FRAMES, PORTAL_COLORS).
  */
 import { BELT_FRAMES, FLOOR_CELLS, PORTAL_COLORS, PORTAL_FRAMES, TILE_PX as T } from "../apps/web/src/game/sprites";
-import { Img, hex, lighten, mix, shade, type RGBA } from "./png";
-
-/** Fills the pixels of an ellipse centred on (cx, cy), coloured by `paint` given how far out (0 to 1) each is. */
-function ellipse(img: Img, cx: number, cy: number, rx: number, ry: number, paint: (d: number, x: number, y: number) => RGBA | null) {
-  for (let y = 0; y < T; y++) {
-    for (let x = 0; x < T; x++) {
-      const d = Math.hypot((x - cx) / rx, (y - cy) / ry);
-      const c = d <= 1 ? paint(d, x, y) : null;
-      if (c) img.set(x, y, c);
-    }
-  }
-}
+import { Img, ellipse, hex, lighten, mix, shade } from "./png";
 
 /** Sheer ice laid over the floor: see-through blue, a frame where the slabs meet, streaks of shine. */
 function iceCell(): Img {

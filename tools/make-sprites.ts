@@ -15,7 +15,7 @@ import { petSheet } from "./pet-art";
 import { floorSheet } from "./floor-art";
 import { tileSheet } from "./tile-art";
 import { BOMB_LOOKS, BOMB_PULSE_FRAMES, TILE_THEMES, type BombLook } from "../apps/web/src/game/sprites";
-import { Img, encodePng, fromAscii, hex, lighten, shade, upscale, type RGBA } from "./png";
+import { Img, ellipse, encodePng, fromAscii, hex, lighten, shade, upscale, type RGBA } from "./png";
 
 const OUT = join(import.meta.dir, "../apps/web/public/sprites");
 mkdirSync(OUT, { recursive: true });
@@ -52,18 +52,13 @@ function fuse(img: Img) {
 
 /**
  * One pulse frame of a bomb: round ones of `radius` (the piercing one with a bright band and a spike
- * each side, the rubber one pink), the mine a flat dome with a blinking button (`lit` on the big frame).
+ * each side, the rubber one pink), the mine a flat dome whose button lights up on the big frame.
  */
 function bombFrame(radius: number, look: BombLook = "plain"): Img {
   const img = new Img(T, T);
   if (look === "mine") {
     const [cx, cy, rx, ry] = [7.5, 11, radius + 1, radius * 0.55 + 0.5];
-    for (let y = 0; y < T; y++) {
-      for (let x = 0; x < T; x++) {
-        const d = Math.hypot((x - cx) / rx, (y - cy) / ry);
-        if (d <= 1 && y <= cy + 1) img.set(x, y, d > 0.8 || y > cy ? hex("#6a7840") : hex("#3c4426"));
-      }
-    }
+    ellipse(img, cx, cy, rx, ry, (d, _x, y) => (y > cy + 1 ? null : d > 0.8 || y > cy ? hex("#6a7840") : hex("#3c4426")));
     img.rect(2, 12, 12, 1, hex("#2a2f1a")); // its rim on the ground
     for (const x of [4, 7, 10]) img.set(x, 10, hex("#9aa86a")); // studs
     const top = Math.floor(cy - ry) - 1; // the button sits on top of the dome

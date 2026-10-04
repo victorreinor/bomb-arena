@@ -7,17 +7,16 @@ import {
   TILE,
   blastCells,
   bombAt,
-  botInput,
   canPlaceAt,
   groundBombAt,
   isBuried,
   solidFor,
+  tileAt,
   step,
   type GameState,
 } from "../src";
-import { corridor, makeGame, run, testBomb } from "./helpers";
+import { corridor, makeGame, play, run, testBomb } from "./helpers";
 
-const tile = (s: GameState, x: number, y = 1) => s.tiles[y * s.width + x];
 const burning = (s: GameState) => s.flames.map((f) => f.x).sort((a, b) => a - b);
 
 describe("pierce bomb", () => {
@@ -25,14 +24,14 @@ describe("pierce bomb", () => {
     const s = makeGame(corridor("1.+++......2"));
     testBomb(s, 6, 1, { pierce: true, range: 3, ticksLeft: 1 });
     step(s);
-    expect([3, 4, 5].map((x) => tile(s, x))).toEqual([TILE.EMPTY, TILE.EMPTY, TILE.EMPTY]);
+    expect([3, 4, 5].map((x) => tileAt(s, x, 1))).toEqual([TILE.EMPTY, TILE.EMPTY, TILE.EMPTY]);
     expect(burning(s)).toEqual([3, 4, 5, 6, 7, 8, 9]);
 
     // a plain one only breaks the first
     const t = makeGame(corridor("1.+++......2"));
     testBomb(t, 6, 1, { range: 3, ticksLeft: 1 });
     step(t);
-    expect([3, 4, 5].map((x) => tile(t, x))).toEqual([TILE.SOFT, TILE.SOFT, TILE.EMPTY]);
+    expect([3, 4, 5].map((x) => tileAt(t, x, 1))).toEqual([TILE.SOFT, TILE.SOFT, TILE.EMPTY]);
   });
 
   test("stone still stops it, and so does a bomb (which goes off too)", () => {
@@ -40,7 +39,7 @@ describe("pierce bomb", () => {
     testBomb(s, 6, 1, { pierce: true, range: 5, ticksLeft: 1 });
     testBomb(s, 8, 1, { range: 1 });
     step(s);
-    expect(tile(s, 4)).toBe(TILE.EMPTY);
+    expect(tileAt(s, 4, 1)).toBe(TILE.EMPTY);
     expect(burning(s)).toEqual([4, 5, 6, 7, 8, 9]); // not the stone at 3; 9 is the second bomb's blast
     expect(s.bombs).toHaveLength(0);
   });
@@ -147,7 +146,7 @@ describe("mine", () => {
     const lure = (owner: string) => {
       const s = makeGame(corridor("1.........2"));
       testBomb(s, 6, 1, { owner, mine: true, range: 2, ticksLeft: MINE_FUSE_TICKS - MINE_ARM_TICKS });
-      for (let t = 0; t < 150 && s.players[1].alive; t++) step(s, { p2: botInput(s, "p2") });
+      play(s, ["p2"], 150);
       return s.players[1];
     };
     expect(lure("p1").death).toEqual({ how: "blast", by: "p1" }); // went after p1, over the mine
@@ -159,10 +158,10 @@ describe("mine", () => {
   test("a bot with mines lays them like bombs, keeps clear and lives on", () => {
     const s = makeGame(corridor("1.....+....2"));
     s.players[0].mineCharges = MAX_MINE_CHARGES;
-    for (let t = 0; t < MINE_FUSE_TICKS + 60; t++) step(s, { p1: botInput(s, "p1") });
+    play(s, ["p1"], MINE_FUSE_TICKS + 60);
     expect(s.players[0].mineCharges).toBeLessThan(MAX_MINE_CHARGES);
     expect(s.players[0].alive).toBe(true);
-    expect(tile(s, 7)).toBe(TILE.EMPTY);
+    expect(tileAt(s, 7, 1)).toBe(TILE.EMPTY);
   });
 
   test("never set off by its own kind of trouble: a remote press skips it", () => {

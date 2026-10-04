@@ -1,6 +1,9 @@
 name = "bomb-arena-server"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
+# answer a client's close at once (the default from 2026-04-07): otherwise the browser waits on and never
+# reports the socket closed
+compatibility_flags = ["web_socket_auto_reply_to_close"]
 
 [[durable_objects.bindings]]
 name = "ROOM"

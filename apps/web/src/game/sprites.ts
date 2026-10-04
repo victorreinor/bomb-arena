@@ -64,7 +64,7 @@ export const floorSheetUrl = "/sprites/floor.png";
 
 /** Paints one of FLOOR_CELLS from the floor sheet at board cell (x, y). */
 export function drawFloorCell(g: CanvasRenderingContext2D, sheet: CanvasImageSource, cell: (typeof FLOOR_CELLS)[number], x: number, y: number) {
-  g.drawImage(sheet, FLOOR_CELLS.indexOf(cell) * TILE_PX, 0, TILE_PX, TILE_PX, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX);
+  drawCell(g, sheet, FLOOR_CELLS.indexOf(cell) * TILE_PX, 0, TILE_PX, TILE_PX, x * TILE_PX, y * TILE_PX, false);
 }
 
 /** Quarter turns from "right" for each belt direction. */
@@ -88,7 +88,7 @@ export function drawFloor(g: CanvasRenderingContext2D, sheet: CanvasImageSource,
   if (code >= FLOOR.PORTAL) {
     const row = 1 + ((code - FLOOR.PORTAL) % PORTAL_COLORS.length);
     const frame = Math.floor(timeMs / 110) % PORTAL_FRAMES;
-    return g.drawImage(sheet, frame * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX);
+    return drawCell(g, sheet, frame * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX, x * TILE_PX, y * TILE_PX, false);
   }
   const belt = code - FLOOR.BELT;
   if (belt < 0 || belt >= BELT_DIRS.length) return;

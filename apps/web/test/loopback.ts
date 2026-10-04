@@ -1,20 +1,17 @@
 import {
+  SnapshotStream,
   TICK_MS,
-  TICK_RATE,
   emptyInput,
   handleClientMessage,
   inputAcks,
   stepRoom,
-  toSnapshot,
   type Button,
   type ClientMsg,
   type GameSnapshot,
   type GameState,
   type Input,
   type InputAck,
-  type SentLists,
   type RoomState,
-  type Tile,
 } from "@bomberman/engine";
 import { diffGame, type GameEvent } from "../src/game/events";
 import { PredictedView, Predictor, type Prediction } from "../src/game/predict";
@@ -57,7 +54,7 @@ export interface Frame {
 
 /**
  * One client playing a room over a pretend network. The server side steps the room every tick and sends
- * snapshots like apps/server does (tiles only when they change); the client side runs OnlineGame's frame
+ * snapshots through the engine's SnapshotStream, as apps/server does; the client side runs OnlineGame's frame
  * every 1/60 s: send the controls when they change, play snapshots back, predict our bomber.
  */
 export class Loopback {
@@ -72,8 +69,8 @@ export class Loopback {
   private nextFrame = FRAME_MS;
   private toServer: { at: number; msg: ClientMsg }[] = [];
   private toClient: { at: number; msg: StateMsg }[] = [];
-  private sentTiles: Tile[] | null = null;
-  private sentLists: SentLists | null = null;
+  /** the server's record of what it has sent */
+  private stream = new SnapshotStream();
   private held: Input = emptyInput();
   private pressed = new Set<Button>();
   private last = { dx: 0, dy: 0, at: -Infinity };
@@ -135,14 +132,10 @@ export class Loopback {
     if (!game) return;
     const me = game.players.find((p) => p.id === this.me);
     if (me) this.served.push({ tick: game.tick, x: me.x, y: me.y });
-    const tilesChanged = !this.sentTiles || game.tiles.some((t, i) => t !== this.sentTiles![i]);
-    if (tilesChanged) this.sentTiles = [...game.tiles];
-    const acks = this.net.noAcks ? undefined : inputAcks(this.room);
-    // as the server: changes for a protocol 2 client, with players and bombs in full once a second
-    const sent = this.net.protocol === 1 || game.tick % TICK_RATE === 0 ? null : this.sentLists;
-    this.sentLists = structuredClone({ players: game.players, bombs: game.bombs });
-    const snap = toSnapshot(game, tilesChanged, sent);
-    const msg: StateMsg = JSON.parse(JSON.stringify({ round: this.room.round, resultsIn: this.room.resultsTicksLeft, game: snap, acks }));
+    const { acks, snapshot } = this.stream.next(this.room.round, game, this.net.noAcks ? {} : inputAcks(this.room));
+    const msg: StateMsg = JSON.parse(
+      JSON.stringify({ round: this.room.round, resultsIn: this.room.resultsTicksLeft, game: snapshot(this.net.protocol ?? 2), acks }),
+    );
     // one connection keeps its order: a late snapshot holds up the ones behind it
     const due = this.now + this.net.down + (this.net.jitter?.(game.tick) ?? 0);
     this.toClient.push({ at: Math.max(due, this.toClient.at(-1)?.at ?? -Infinity), msg });

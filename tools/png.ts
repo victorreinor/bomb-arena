@@ -36,6 +36,20 @@ export class Img {
   }
 }
 
+/**
+ * Paints the ellipse centred on (cx, cy): `paint` gets how far out each pixel is (0 in the middle, 1 on the
+ * rim) and its position, and returns its colour, or null to leave it.
+ */
+export function ellipse(img: Img, cx: number, cy: number, rx: number, ry: number, paint: (d: number, x: number, y: number) => RGBA | null) {
+  for (let y = 0; y < img.h; y++) {
+    for (let x = 0; x < img.w; x++) {
+      const d = Math.hypot((x - cx) / rx, (y - cy) / ry);
+      const c = d <= 1 ? paint(d, x, y) : null;
+      if (c) img.set(x, y, c);
+    }
+  }
+}
+
 /** `img` blown up `k` times, each pixel a k×k block (pixel art stays crisp). */
 export function upscale(img: Img, k: number): Img {
   const out = new Img(img.w * k, img.h * k);

@@ -28,7 +28,8 @@ export interface Sample {
 
 /** further apart than this (tiles) between two ticks, something went through a portal: show it at once */
 const WARP_TILES = 1.5;
-const warped = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(b.x - a.x) + Math.abs(b.y - a.y) > WARP_TILES;
+/** Whether something got from `a` to `b` in a tick too far to have walked or slid it: through a portal. */
+export const warped = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(b.x - a.x) + Math.abs(b.y - a.y) > WARP_TILES;
 
 /** A timed animation (a hop, a flight) carries on between two states only if its clock moved on: a restart (a bounce) snaps. */
 const carriesOn = (from: { ticks: number } | null, to: { ticks: number } | null) => !!from && !!to && to.ticks > from.ticks;

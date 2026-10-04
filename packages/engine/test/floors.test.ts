@@ -9,16 +9,15 @@ import {
   TICK_RATE,
   TILE,
   VENT_PERIOD_TICKS,
-  botInput,
   canPlaceAt,
   fromSnapshot,
   step,
+  tileAt,
   toSnapshot,
   type GameState,
 } from "../src";
-import { corridor, makeGame, run, testBomb } from "./helpers";
+import { corridor, makeGame, play, run, testBomb } from "./helpers";
 
-const tile = (s: GameState, x: number, y = 1) => s.tiles[y * s.width + x];
 
 describe("conveyor belts", () => {
   test("carry whoever stands on them; walking against one is slow going", () => {
@@ -118,7 +117,7 @@ describe("portals", () => {
     // the item is only reachable through the portal behind the bot, in a dead end it has no other reason to visit
     const s = makeGame(["#######", "#A1...#", "#######", "#..A.2#", "#######"]);
     s.powerUps.push({ x: 1, y: 3, kind: "fire" });
-    for (let t = 0; t < 3 * TICK_RATE; t++) step(s, { p1: botInput(s, "p1") });
+    play(s, ["p1"], 3 * TICK_RATE);
     expect(s.players[0].range).toBe(3);
   });
 
@@ -141,8 +140,8 @@ describe("crates", () => {
   test("leaning on one for a moment shoves it a tile; keep pushing and it keeps going", () => {
     const s = makeGame(corridor("1.=.....2"));
     run(s, 10 + PUSH_TICKS + 5, { p1: { dx: 1 } }); // about 10 ticks to reach it
-    expect(tile(s, 3)).toBe(TILE.EMPTY);
-    expect(tile(s, 4)).toBe(TILE.CRATE);
+    expect(tileAt(s, 3, 1)).toBe(TILE.EMPTY);
+    expect(tileAt(s, 4, 1)).toBe(TILE.CRATE);
     run(s, 40, { p1: { dx: 1 } });
     expect(s.tiles.indexOf(TILE.CRATE) % s.width).toBeGreaterThan(5);
   });
@@ -156,7 +155,7 @@ describe("crates", () => {
       const s = makeGame(corridor(inner));
       setUp(s);
       run(s, 60, { p1: { dx: 1 } });
-      expect(tile(s, 3)).toBe(TILE.CRATE);
+      expect(tileAt(s, 3, 1)).toBe(TILE.CRATE);
     }
   });
 
@@ -164,7 +163,7 @@ describe("crates", () => {
     const s = makeGame(corridor("1...=..2"));
     testBomb(s, 3, 1, { range: 3, ticksLeft: 1 });
     step(s);
-    expect(tile(s, 5)).toBe(TILE.CRATE);
+    expect(tileAt(s, 5, 1)).toBe(TILE.CRATE);
     expect(s.flames.some((f) => f.x > 4)).toBe(false);
   });
 });
@@ -194,7 +193,7 @@ describe("lava vents", () => {
     s.players[0].x = 6.5;
     s.players[1].bombsMax = 0;
     run(s, VENT_PERIOD_TICKS - TICK_RATE); // a second to go
-    for (let t = 0; t < TICK_RATE + 5; t++) step(s, { p2: botInput(s, "p2") });
+    play(s, ["p2"], TICK_RATE + 5);
     expect(s.players[1].alive).toBe(true);
   });
 });

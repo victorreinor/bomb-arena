@@ -168,8 +168,7 @@ export function toSnapshot(game: GameState, withBoard: boolean, sent: SentLists 
   return withBoard ? { ...lean, tiles, floor } : lean;
 }
 
-const sameValue = (a: unknown, b: unknown) =>
-  a === b || (typeof a === "object" && typeof b === "object" && a !== null && b !== null && JSON.stringify(a) === JSON.stringify(b));
+const sameValue = (a: unknown, b: unknown) => a === b || (typeof a === "object" && typeof b === "object" && JSON.stringify(a) === JSON.stringify(b));
 
 /** The fields of `after` that differ from `before`; null when none do. */
 function changedFields<T extends object>(before: T, after: T): Partial<T> | null {
@@ -207,4 +206,55 @@ export function fromSnapshot(snap: GameSnapshot, lastBoard: Board, last: SentLis
     rng: 0,
     nextBombId: 0,
   };
+}
+
+/**
+ * Clients that take changes still get every player and bomb in full this often (in ticks), so one that
+ * somehow fell out of step is back in a second.
+ */
+export const FULL_LISTS_TICKS = TICK_RATE;
+
+/** A copy of a player or a bomb that later changes to it can't reach: their nested fields are only one level deep. */
+const copyEntry = <T extends object>(entry: T): T =>
+  Object.fromEntries(Object.entries(entry).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v && typeof v === "object" ? { ...v } : v])) as T;
+
+/**
+ * What a room has broadcast so far, so each state message carries only what changed: the board when it
+ * changes (and in full each round and for a newcomer), players and bombs as changes for clients on
+ * protocol 2 (in full every FULL_LISTS_TICKS), and the input acknowledgements that changed. Every client
+ * gets every message in order, so they all share this one record.
+ */
+export class SnapshotStream {
+  private round = -1;
+  private tiles: Tile[] | null = null;
+  private lists: SentLists | null = null;
+  private acks = new Map<string, string>();
+
+  /** Someone new is listening: the next message carries everything in full. */
+  restart() {
+    this.tiles = null;
+    this.lists = null;
+  }
+
+  /**
+   * The next message about `game` (to be built before it steps again): the acknowledgements that changed
+   * and, for each protocol a client speaks, its snapshot.
+   */
+  next(round: number, game: GameState, acks: Record<string, InputAck>) {
+    if (round !== this.round) {
+      this.round = round;
+      this.restart();
+      this.acks.clear();
+    }
+    const withBoard = !this.tiles || game.tiles.some((t, i) => t !== this.tiles![i]);
+    if (withBoard) this.tiles = [...game.tiles];
+    const changed = Object.entries(acks).filter(([id, ack]) => this.acks.get(id) !== ack.join(":"));
+    for (const [id, ack] of changed) this.acks.set(id, ack.join(":"));
+    const sent = game.tick % FULL_LISTS_TICKS === 0 ? null : this.lists;
+    this.lists = { players: game.players.map(copyEntry), bombs: game.bombs.map(copyEntry) };
+    return {
+      acks: changed.length > 0 ? Object.fromEntries(changed) : undefined,
+      snapshot: (version: number) => toSnapshot(game, withBoard, version >= 2 ? sent : null),
+    };
+  }
 }

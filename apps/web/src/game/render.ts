@@ -8,7 +8,7 @@ import {
   VENT_PERIOD_TICKS,
   VENT_WARN_TICKS,
   countingDown,
-  isBuried,
+  floorAt,
   tileAt,
   ventCycle,
   wrap,
@@ -58,7 +58,7 @@ const MINE_SINK = 3;
  */
 function sunk(b: Bomb): number {
   if (!b.mine || b.slide || b.flight || b.held) return 0;
-  return isBuried(b) ? 1 : Math.min(1, (MINE_FUSE_TICKS - b.ticksLeft) / MINE_ARM_TICKS);
+  return Math.min(1, (MINE_FUSE_TICKS - b.ticksLeft) / MINE_ARM_TICKS);
 }
 
 /** Markers floating over a bomber (a curse, a name tag) bob together, this many sprite pixels at most. */
@@ -86,7 +86,7 @@ export function canvasSize(state: GameState) {
 
 /**
  * The floor and blocks only change when a soft block burns or a crate moves, so they are drawn once into
- * an offscreen canvas, with the special floors that don't move (ice, the vents' craters).
+ * an offscreen canvas, with the ice (the other special floors move, and are drawn every frame).
  */
 const board = {
   canvas: null as HTMLCanvasElement | null,
@@ -97,9 +97,6 @@ const board = {
   sheet: null as HTMLImageElement | null,
   floor: null as readonly number[] | null,
 };
-
-/** Special floors that don't move go into the board image; belts and portals are drawn every frame. */
-const stillFloor = (code: number) => code === FLOOR.ICE || code === FLOOR.VENT;
 
 /** How hot the vents glow, 0 to 1: a faint simmer, then building up over VENT_WARN_TICKS before they erupt. */
 function ventHeat(state: GameState, timeMs: number): number {
@@ -129,8 +126,7 @@ function boardImage(state: GameState, sprites: Sprites): HTMLCanvasElement {
       const t = tileAt(state, x, y);
       const kind = t === TILE.HARD ? "hard" : t === TILE.SOFT ? "soft" : "floor";
       drawTile(g, sheet, tileName(kind, tileAt(state, x, y - 1) !== TILE.EMPTY, x, y), x, y);
-      const code = state.floor?.[y * state.width + x] ?? FLOOR.PLAIN;
-      if (t === TILE.EMPTY && stillFloor(code)) drawFloor(g, sprites.floor, code, x, y, 0);
+      if (t === TILE.EMPTY && floorAt(state, x, y) === FLOOR.ICE) drawFloor(g, sprites.floor, FLOOR.ICE, x, y, 0);
       if (t === TILE.CRATE) drawFloorCell(g, sprites.floor, "crate", x, y);
     }
   }
@@ -169,7 +165,7 @@ export function render(
   if (state.floor) {
     const heat = ventHeat(state, timeMs);
     state.floor.forEach((code, i) => {
-      if (code === FLOOR.PLAIN || state.tiles[i] !== TILE.EMPTY || (stillFloor(code) && code !== FLOOR.VENT)) return;
+      if (code === FLOOR.PLAIN || code === FLOOR.ICE || state.tiles[i] !== TILE.EMPTY) return;
       drawFloor(ctx, sprites.floor, code, i % state.width, Math.floor(i / state.width), timeMs, code === FLOOR.VENT ? heat : 0);
     });
   }
