@@ -12,7 +12,7 @@ bun run dev          # cliente (Vite) em :5173
 
 Ou os dois de uma vez: `bun run dev:all`. Se a tela ficar em "Conectando…" / mostrar erro de conexão, o servidor (porta 8787) não está rodando.
 
-Abra `http://localhost:5173` em várias abas: cada aba é um jogador. Controles: WASD/setas para mover, Espaço/Enter para bomba, Shift para a ação (soco, luva, detonar remota). No modo local, `?itens=todos` começa com vários itens para testar. M liga/desliga a música, N os efeitos sonoros.
+Abra `http://localhost:5173` em várias abas: cada aba é um jogador. Controles: WASD/setas para mover, Espaço/Enter para bomba, Shift para a ação (soco, luva, detonar remota), E (ou /) para o poder do pet. Também funciona com controle (A bomba, B ação, Y pet) e, no celular, com os botões na tela. No modo local: `?itens=todos` começa com vários itens e pets, `?pet=runner|jumper|pusher|kicker` escolhe o pet, `?vinganca=1` liga o modo vingança, `?tempo=<segundos>` encurta o relógio para ver o sudden death. Na tela inicial, "Treinar contra bots" joga você contra 3 bots. M liga/desliga a música, N os efeitos sonoros.
 
 Outros comandos: `bun test packages` (engine + salas), `bun run typecheck`, `bun run e2e` (smoke test contra o servidor local), `bun run sprites` (regenera os PNGs).
 

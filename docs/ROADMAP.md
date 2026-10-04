@@ -18,6 +18,8 @@ Legenda: `[x]` feito · `[ ]` pendente. Atualizar a cada entrega.
 - [x] Criar sala / entrar por código (5 letras) ou link `?sala=CODIGO` (o link abre uma tela de convite só com nome + "Entrar na sala"), até 4 jogadores
 - [x] Lobby: escolher cor (única por sala), pronto, anfitrião escolhe mapa e inicia
 - [x] Vagas da sala (2–4) escolhidas ao criar; o anfitrião pode mudar no lobby (nunca abaixo de quem já entrou)
+- [x] Escolha do mapa em carrossel (◀ ▶, setas do teclado, bolinhas) com prévia desenhada (pilares, tijolos, pontos de início) e informações
+- [x] Lobby em duas colunas (jogadores/cor | mapa/opções), opções em linhas compactas e botão de iniciar fixo: cabe sem rolar no desktop
 - [x] Partida em andamento → entrante assiste e entra na próxima
 - [x] Reconexão (10 s de tolerância; depois é eliminado/removido); anfitrião migra
 - [x] Interpolação no cliente (buffer de snapshots)
@@ -26,15 +28,24 @@ Legenda: `[x]` feito · `[ ]` pendente. Atualizar a cada entrega.
 - [x] Teste e2e (`bun run e2e`) e fluxo de 3 abas verificado em Chrome headless
 - [ ] **Deploy** Vercel + Cloudflare (precisa do seu login; passos no README)
 - [ ] Predição de movimento no cliente (hoje o movimento espera o servidor: atraso ≈ ping)
-- [ ] Placar da sessão / "melhor de N"
-- [ ] Sair da sala explicitamente (hoje fechar a aba = desconexão com 10 s de tolerância)
-- [ ] Limite de salas / proteção contra abuso (rate limit)
-- [ ] Snapshots menores: mandar o mapa uma vez e depois só os tiles que mudaram, tirar `rng`/`nextBombId` (hoje ~2,7 KB por tick por cliente; o `rng` deixa prever drops) e parar de mandar estado durante a contagem do pódio
+- [x] Placar da sessão (🏆 por jogador) e série "melhor de 3 / 5" escolhida pelo anfitrião, com campeão anunciado
+- [x] Sair da sala na hora (lobby e partida), sem esperar os 10 s de reconexão; o servidor encerra a conexão de quem sai
+- [x] Proteção contra abuso: limite de mensagens por conexão (40/s, corta quem insiste) e de conexões por IP no Worker (por instância)
+- [ ] Limite global de salas/conexões (precisaria de estado compartilhado entre instâncias)
+- [x] Snapshots menores: o tabuleiro só vai quando muda (ou chega alguém), sem `rng`/`nextBombId`, e 1 por segundo durante o pódio
+- [ ] Encolher também os dados dos jogadores (campos estáticos mandados a cada tick)
 - [ ] Engine emitir os eventos (pegou item, chutou, morreu...) em vez de o cliente deduzir comparando estados; hoje pegar um item já no máximo não gera som/efeito
 - [ ] Investigar o log "Uncaught Error: Network connection lost" do wrangler a cada entrada recusada (sala inexistente/cheia/código repetido). O cliente recebe o erro e o fechamento certos; testado: não é quem fecha nem falta de listeners.
 
 ## Correções
 - [x] Botão de ação (Shift) não chegava ao servidor no modo online (soco, luva, arremesso e remota só funcionavam no modo local). Mensagens do cliente agora são tratadas na engine (`handleClientMessage`), com testes.
+
+## Dívida técnica (da revisão de código; nenhuma urgente)
+- [ ] Uma só mensagem `settings` para as opções do lobby (hoje uma por opção) — fazer quando entrar a próxima opção
+- [ ] Modo local rodando pela lógica de sala (bots, série e nomes iguais ao online) — fazer se o modo local ganhar opções de sala
+- [ ] Separar no tipo os campos que o servidor não envia (`rng`, `nextBombId`) — fazer junto com a predição de movimento
+- [ ] (opcional) Esconder `?itens=todos`, `?pet=`, `?vinganca=`, `?tempo=` em produção — só afetam o modo local
+- [ ] (descartado: ganho irrelevante) gravar volume só ao soltar o slider; contador de versão dos tiles no servidor
 
 ## Fase 3 — Power-ups avançados
 - [x] Chutar bomba (desliza até bater; explode ao entrar em fogo)
@@ -51,21 +62,31 @@ Legenda: `[x]` feito · `[ ]` pendente. Atualizar a cada entrega.
 - [ ] Balancear as chances de drop com playtests
 
 ## Fase 4 — Pets/montarias
-- [ ] Ovos escondidos em blocos específicos
-- [ ] Definir roster e habilidades (inspirado nos Louies de SB3/SB4)
-- [ ] Pet protege 1 hit; perda ao ser atingido
+- [x] Ovo como item que sai dos blocos; montado, o jogador deixa os próximos ovos no chão
+- [x] 4 pets com poder na tecla própria (E / "/"): Corredor (dispara até bater), Saltador (pula 2 casas, imune ao fogo no ar), Empurrador (empurra tijolo 1 casa), Chutador (chute forte, sem precisar do item)
+- [x] Pet aguenta 1 golpe (antes do colete) e foge; jogador fica 2,5 s invulnerável
+- [x] Sprites originais dos pets, ícone no placar, legenda no lobby, efeitos e sons; atalho `?itens=todos&pet=<tipo>` no modo local
+- [ ] Balancear recargas e a chance do ovo com playtests
 
 ## Fase 5 — Mapas complexos
 - [ ] Esteiras · [ ] Teletransportes · [ ] Gelo · [ ] Blocos móveis · [ ] Perigos
 
 ## Fase 6 — Extras
-- [ ] Morte com "revenge" (jogador morto joga bombas das bordas)
-- [ ] Sudden death (blocos caindo após X minutos)
+- [x] Modo vingança (opção da sala, anfitrião liga): o morto vira fantasma na borda, anda por ela e joga bombas 3 casas para dentro (1 por vez, recarga de 2 s); atalho `?vinganca=1` no modo local
+- [ ] Vingança com volta: quem acerta um vivo com a bomba de fantasma volta para a arena (opcional)
+- [x] Tempo de partida (2, 3, 5 min ou sem limite) e sudden death: blocos de pedra caem em espiral, esmagam quem estiver embaixo (pet/colete não salvam), com alarme, música acelerada e efeitos
 - [x] Efeitos visuais de explosão (onda de choque, brilho, faíscas, fumaça, destroços, tremor de tela, clarão) e animação de morte
 - [x] Fogo em pixel art no lugar dos retângulos: feixes com miolo estável e bordas tremulando, pontas arredondadas, esfria de branco a vermelho-escuro; bola de fogo no centro de cada bomba; clarão mais contido
-- [ ] Mais faixas de música / controle de volume
-- [ ] Opção para reduzir tremor/clarão (acessibilidade)
-- [ ] Controles touch (mobile), com botão de Ação
-- [ ] Suporte a controle/gamepad (direcional ou analógico para mover, um botão para bomba, outro para Ação)
+- [x] Mais músicas (2º tema de batalha por mapa, versão acelerada no sudden death) e volume de música/efeitos no painel ⚙️
+- [x] "Reduzir tremor e clarão" no painel ⚙️ (segue o "reduzir movimento" do sistema por padrão)
+- [x] Controles touch no celular: direcional + Bomba/Ação/Pet
+- [x] Gamepad (mapeamento padrão): direcional/analógico, A bomba, B/X ação, Y/RB pet; no modo local, controle 1 = J1, controle 2 = J2
 - [ ] Contas/ranking (Supabase)
-- [ ] Bots, replays
+- [x] Bots: fogem do perigo (inclusive reações em cadeia), quebram tijolos, pegam itens e caçam; o anfitrião adiciona/remove na sala; "Treinar contra bots" na tela inicial; como fantasmas no modo vingança também jogam
+- [x] Bot "travado" indo e voltando: depois de se proteger da própria bomba, voltava pela área da explosão (e fugia de novo); também alternava entre dois pontos de bomba sem rota de fuga. Corrigido, com testes
+- [x] Bot "dançando" entre duas casas nos casos que sobravam: alvo que mudava conforme os inimigos se mexiam (agora escolhe uma presa e fica nela uns segundos; para quando já está colado), horizonte de busca que andava com o bot, e controles invertidos da caveira (agora compensa)
+- [x] Bomba arremessada/socada que cai na cabeça de alguém (bot ou pessoa) quica para a casa seguinte, estilo SNES, e deixa a pessoa tonta por 1 s (gira, estrelinhas, som de "bonk"; quem carregava bomba na luva a deixa cair). Antes prendia o jogador dentro da bomba até explodir
+- [x] Bots com nível Fácil/Normal/Difícil: tempo para notar a bomba dos outros, de quanto em quanto tempo repensam o objetivo, hesitação antes de plantar, pânico momentâneo, margem de segurança ao fugir e vontade de caçar. O anfitrião escolhe ao adicionar e troca clicando no nível; "Treinar contra bots" também escolhe
+- [ ] Ajustar os números dos níveis jogando (estão em `PROFILES` em `packages/engine/src/bot.ts`)
+- [ ] Bots usarem pets e itens especiais (chutar, socar, remota)
+- [ ] Replays (a engine é determinística: dá para gravar só seed + entradas)
