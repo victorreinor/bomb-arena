@@ -31,7 +31,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 | `maps.ts` | Mapas em ASCII de qualquer tamanho (`#` pedra, `+` tijolo, `o` tijolo sorteado por `softDensity`, `.` livre, dígitos = início; as vagas são os inícios, `mapSeats`), `MAPS`, `MAP_IDS`, `SPAWN_ORDER` |
 | `game.ts` | `createGame`, `step` (um tick), `stepPlayer`, `pickUp`, bombas, explosões, chute/soco/luva, quique na cabeça, pets, vingança, sudden death, ranking |
 | `room.ts` | Sala: membros, anfitrião, cor, pronto, vagas, bots, opções, série/placar, reconexão (10 s), `handleClientMessage`, `stepRoom`, `inputAcks`, `roomView` |
-| `protocol.ts` | Mensagens `ClientMsg`/`ServerMsg`, `RoomView`, `toSnapshot`/`fromSnapshot`, códigos de sala |
+| `protocol.ts` | Mensagens `ClientMsg`/`ServerMsg`, `RoomView`, `toSnapshot`/`fromSnapshot` (com as mudanças do protocolo 2), `PROTOCOL_VERSION`, códigos de sala |
 | `bot.ts` | Mapa de perigo (`dangerMap`), decisão (`botInput`), níveis em `PROFILES` |
 | `rng.ts` | mulberry32 (`nextRandom`, `randomSeed`) |
 | `ratelimit.ts` | `TokenBucket` (limite de mensagens e de conexões) |
@@ -56,7 +56,8 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 - `index.ts`: o Worker. Aceita só `/ws/<CÓDIGO>?pid=&name=&create=1&max=`, limita conexões por IP (por instância) e encaminha ao Durable Object do código.
 - `room.ts`: a classe `Room`. Usa WebSockets simples (sem hibernação, porque o loop precisa ficar vivo) e um loop de passo fixo de 33 ms que recupera até 5 ticks atrasados. Por conexão, aplica limite de 40 msg/s com rajada de 80 e mensagens de no máximo 512 bytes. O que transmite:
   - `room` (`RoomView`) quando algo visível do lobby muda;
-  - `state` a cada tick com partida: o snapshot sem `rng`/`nextBombId` e sem o dono de cada chama, `tiles` só quando o tabuleiro muda ou alguém chega, `acks` só dos jogadores cujo comando mudou e, durante o pódio, 1 por segundo.
+  - `state` a cada tick com partida: o snapshot sem `rng`/`nextBombId` e sem o dono de cada chama, `tiles` só quando o tabuleiro muda ou alguém chega, `acks` só dos jogadores cujo comando mudou e, durante o pódio, 1 por segundo. Quem conectou com `v=2` recebe jogadores e bombas só com o que mudou desde o snapshot anterior (`changes`: por jogador, os campos que mudaram ou `null`; por bomba, pelo id, os campos que mudaram ou a bomba inteira se é nova), e tudo completo uma vez por segundo, quando alguém chega e a cada rodada. Quem não mandou `v` recebe tudo completo. Cada forma só é montada se alguém precisa dela.
+- Fechar conexão: o servidor manda `error` e espera 1 s para o cliente desligar (`hangUp`); se ele não desligar, fecha. Quando o cliente fecha, o servidor responde (`closeBack`). Fechar primeiro faz o workerd logar "Network connection lost", e sem resposta o navegador nunca dá a conexão por fechada.
 - Responde `ping` com `pong` na hora, sem passar pela engine (o cliente mede a ida e volta). Quem deixa de ser membro com a conexão aberta (tirado pelo anfitrião) recebe o erro `removed` antes de ser desligado.
 - `wrangler.toml`: binding `ROOM` e migração SQLite (a única opção de DO no plano grátis).
 
@@ -64,7 +65,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 ### Telas
 
-`App.tsx` alterna entre `Home` (criar sala, entrar por código ou link `?sala=`, treinar contra bots, jogo local), `Lobby` (jogadores, cor, bots, carrossel de mapas `MapPicker`, opções), `OnlineGame` e `LocalGame`. As duas telas de partida desenham dentro de `game/GameFrame.tsx`: no computador, título, jogadores, tabuleiro e dicas de teclas; no celular, uma tela inteira em pé ou deitada, com o tabuleiro no maior tamanho que cabe (só CSS, por container queries), os controles de toque, o botão de girar/tela cheia (`screenMode.ts`) e o menu ⚙️ com som, ajustes e "Sair". O layout em si (áreas da grade em pé e deitado) está em `styles.css`, seção "phones"; textos só de teclado ou só de celular usam as classes `desktop-only` e `phone-only`. `net/useRoom.ts` abre o WebSocket, reconecta com espera crescente e entrega `room`, o `SnapshotBuffer` e `send`. O id do jogador é por aba (`sessionStorage`).
+`App.tsx` alterna entre `Home` (criar sala, entrar por código ou link `?sala=`, treinar contra bots, jogo local), `Lobby` (jogadores, cor, bots, carrossel de mapas `MapPicker`, opções), `OnlineGame` e `LocalGame`. As duas telas de partida desenham dentro de `game/GameFrame.tsx`: no computador, título, jogadores, tabuleiro e dicas de teclas; no celular, uma tela inteira em pé ou deitada, com o tabuleiro no maior tamanho que cabe (só CSS, por container queries), os controles de toque, o botão de girar/tela cheia (`screenMode.ts`) e o menu ⚙️ com som, ajustes e "Sair". O layout em si (áreas da grade em pé e deitado) está em `styles.css`, seção "phones"; textos só de teclado ou só de celular usam as classes `desktop-only` e `phone-only`. `net/useRoom.ts` abre o WebSocket (dizendo a versão do protocolo, `v`), reconecta com espera crescente, desliga sozinho quando recebe `error` e entrega `room`, o `SnapshotBuffer` e `send`. O id do jogador é por aba (`sessionStorage`).
 
 ### Um quadro da partida online (`OnlineGame.tsx`)
 
@@ -76,7 +77,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 ### Reserva de reprodução (`snapshots.ts`)
 
-`SnapshotBuffer` guarda até 30 snapshots e reproduz `delay` ticks atrás do mais novo, interpolando posições (`lerpState`/`lerpPlayer`: andar, bombas deslizando, arcos de voo). O `delay` se ajusta entre 1 e 3 ticks: mede o atraso de cada snapshot contra a agenda de ticks do servidor e cobre o percentil 90.
+`SnapshotBuffer` remonta cada snapshot sobre o anterior (o tabuleiro e, no protocolo 2, as mudanças de jogadores e bombas; até um snapshot velho demais para mostrar serve de base para o seguinte), guarda até 30 e reproduz `delay` ticks atrás do mais novo, interpolando posições (`lerpState`/`lerpPlayer`: andar, bombas deslizando, arcos de voo). O `delay` se ajusta entre 1 e 3 ticks: mede o atraso de cada snapshot contra a agenda de ticks do servidor e cobre o percentil 90.
 
 ### Predição (`predict.ts`)
 

@@ -75,11 +75,11 @@ Também na fila, já listados nas fases abaixo: bots usarem pets e itens especia
 - [x] Placar da sessão (🏆 por jogador) e série "melhor de 3 / 5" escolhida pelo anfitrião, com campeão anunciado
 - [x] Sair da sala na hora (lobby e partida), sem esperar os 10 s de reconexão; o servidor encerra a conexão de quem sai
 - [x] Proteção contra abuso: limite de mensagens por conexão (40/s, corta quem insiste) e de conexões por IP no Worker (por instância)
-- [ ] Limite global de salas/conexões (precisaria de estado compartilhado entre instâncias)
+- [ ] Limite global de salas/conexões (precisaria de estado compartilhado entre instâncias). Avaliado em 04/10/2026: não vale agora. Seria um Durable Object central (mais um ponto que pode cair e mais requisições na cota), e no plano grátis estourar a cota só para o jogo até o dia seguinte, sem cobrança
 - [x] Snapshots menores: o tabuleiro só vai quando muda (ou chega alguém), sem `rng`/`nextBombId`, e 1 por segundo durante o pódio
-- [ ] Encolher também os dados dos jogadores (campos estáticos mandados a cada tick)
-- [ ] Engine emitir os eventos (pegou item, chutou, morreu...) em vez de o cliente deduzir comparando estados; hoje pegar um item já no máximo não gera som/efeito
-- [ ] Investigar o log "Uncaught Error: Network connection lost" do wrangler a cada entrada recusada (sala inexistente/cheia/código repetido). O cliente recebe o erro e o fechamento certos; testado: não é quem fecha nem falta de listeners.
+- [x] Encolher também os dados dos jogadores e das bombas: no protocolo 2 (o cliente avisa com `v=2`) vai só o que mudou, completo uma vez por segundo. Numa partida de 4, o snapshot caiu de ~2,7 KB para ~650 bytes (−76%; uma hora de jogo no 4G passa de ~290 MB para ~70 MB). Cliente antigo continua recebendo tudo completo
+- [x] Pegar item já no máximo agora tem som e efeito: o `diffGame` vê o item sumir da casa onde o boneco está (sem fogo nem bloco caindo ali). Resolvido sem a engine emitir eventos, que continuam saindo da diferença entre estados; caveira em quem já está amaldiçoado também avisa a maldição nova
+- [x] Log "Uncaught Error: Network connection lost" do wrangler: aparece sempre que o servidor fecha a conexão antes do cliente. Agora o cliente desliga sozinho ao receber o erro e o servidor só fecha depois de 1 s, se o cliente não fechou. De quebra, o servidor passou a responder ao fechamento do cliente: sem isso o navegador ficava esperando e a tela de "Sala não encontrada" só aparecia porque o servidor fechava primeiro
 
 ## Correções
 - [x] Botão de ação (Shift) não chegava ao servidor no modo online (soco, luva, arremesso e remota só funcionavam no modo local). Mensagens do cliente agora são tratadas na engine (`handleClientMessage`), com testes.
