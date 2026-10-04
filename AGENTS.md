@@ -11,5 +11,5 @@ Depois dele, conforme a tarefa:
 Resumo do essencial:
 
 - Responda em português do Brasil; o código e os commits são em inglês.
-- Antes de entregar, rode `bun run typecheck`, `bun test packages` e `bun run build`.
+- Antes de entregar, rode `bun run typecheck`, `bun run test` e `bun run build`.
 - Faça commit, push ou deploy só quando o usuário pedir.

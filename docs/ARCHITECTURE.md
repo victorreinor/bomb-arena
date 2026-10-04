@@ -134,6 +134,6 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 ## Verificação
 
-- `bun test packages`: regras, salas, mensagens, pets, vingança, sudden death, série e bots. Os helpers estão em `test/helpers.ts`.
+- `bun run test`: regras, salas, mensagens, pets, vingança, sudden death, série e bots (`packages/engine/test`, helpers em `test/helpers.ts`), mais a predição e a reserva de reprodução do cliente (`apps/web/test`). Os testes do cliente rodam o quadro do `OnlineGame` (sem desenho) contra uma sala da engine numa rede simulada (`loopback.ts`, com atraso de ida, de volta e snapshots atrasados) e conferem o que o jogador veria: o boneco responde na hora, nunca fica mais de um tick de caminhada longe do servidor e termina exatamente onde o servidor diz; bombas e itens aparecem e somem uma vez só.
 - `bun run e2e`: abre conexões reais contra o servidor local (criar, entrar, cheio, iniciar, comandos e `acks`, bots, sair).
 - No navegador: `bun run dev:all` e várias abas (cada aba é um jogador). Para simular rede ruim, use o throttling do DevTools.

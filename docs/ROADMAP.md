@@ -29,9 +29,10 @@ Tamanho: P pequeno · M médio · G grande. 🖥️ = mexe na engine ou no proto
 - [ ] Batalha em duplas (2 contra 2, pessoas ou bots), com fogo amigo opcional — M 🖥️
 - [ ] Bombas novas, uma por vez pela receita de item: perfurante (atravessa vários tijolos), de borracha (quica nas paredes), mina (fica invisível) — P–M cada 🖥️
 - [ ] Começar a Fase 5 por um mapa só: esteiras (ou teletransportes), com cenário próprio — M–G 🖥️
+- [ ] Monstros na arena, como os bichos e tanques dos mapas dos Super Bomberman do SNES: uns só atrapalham, outros soltam fogo. Opção da sala (sem / poucos / muitos) e, depois, mapas com monstros próprios. Começar por um tipo só; os tipos estão na seção "Monstros" mais abaixo — M–G 🖥️
 
 **Quando der: proteção**
-- [ ] Testes para `predict.ts` e `snapshots.ts` (o código mais delicado do cliente; roda com `bun test`, sem navegador) — P–M
+- [x] Testes para `predict.ts` e `snapshots.ts` (`apps/web/test`, `bun run test`): rede simulada com a sala da engine como servidor; confere resposta imediata, correções de no máximo um tick de caminhada, bomba e item uma vez só, contagem, servidor sem `acks`, conexão parada, reserva de 1 a 3 ticks e interpolação
 - [ ] CI no GitHub Actions: typecheck, testes e build a cada push, antes de a Vercel publicar — P
 - [ ] Aviso de erros em produção (Sentry ou similar, plano grátis; conferir limites antes) — P
 
@@ -120,6 +121,17 @@ Também na fila, já listados nas fases abaixo: bots usarem pets e itens especia
 
 ## Fase 5 — Mapas complexos
 - [ ] Esteiras · [ ] Teletransportes · [ ] Gelo · [ ] Blocos móveis · [ ] Perigos
+
+## Monstros na arena
+Bichos controlados pelo jogo, com arte e nomes próprios (nada copiado do SNES). Morrem com uma explosão e podem soltar um item ao morrer.
+- [ ] Andarilho: anda ao acaso pelos corredores e só atrapalha: fecha a passagem e deixa tonto por 1 s quem encostar (o mesmo tonto da bomba que cai na cabeça)
+- [ ] Caçador: anda atrás do jogador mais perto, e encostar nele custa uma vida (o pet ou o colete salvam, como no fogo)
+- [ ] Atirador: tanque que para, mira por um instante (com aviso na tela) e solta uma chama em linha reta, que também acende bombas e quebra tijolos
+- [ ] Estátua: fica parada e cospe fogo de tempos em tempos numa direção fixa, com aviso antes; uma explosão a derruba
+- [ ] Opção da sala "Monstros: sem / poucos / muitos", que vale em qualquer mapa e no treino contra bots
+- [ ] Mapas com monstros próprios, um por cenário (exemplo: estátuas no Templo, tanques na Fábrica)
+- [ ] Bots fugindo dos monstros e da mira dos atiradores
+- Por dentro: regra na engine (`state.monsters`, acaso vindo de `state.rng`), lista exaustiva `MONSTER_KINDS` para o typecheck apontar o que falta, campo opcional no snapshot (cliente antigo só não vê os monstros), folha de sprite própria e a predição tratando o monstro como obstáculo
 
 ## Fase 6 — Extras
 - [x] Modo vingança (opção da sala, anfitrião liga): o morto vira fantasma na borda, anda por ela e joga bombas 3 casas para dentro (1 por vez, recarga de 2 s); atalho `?vinganca=1` no modo local

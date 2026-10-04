@@ -21,7 +21,7 @@ Use Bun (`bun install`) e o Node do `.nvmrc` (24.21.0). Rode tudo a partir da ra
 |---|---|
 | `bun run dev:all` | Servidor (wrangler, :8787) e cliente (Vite, :5173) juntos |
 | `bun run dev` / `bun run dev:server` | Só o cliente / só o servidor |
-| `bun test packages` | Testes da engine e das salas (rodam em menos de 1 s) |
+| `bun run test` | Testes da engine, das salas e da predição do cliente (rodam em menos de 1 s) |
 | `bun run typecheck` | `tsc` na engine, no cliente e no servidor |
 | `bun run build` | Build de produção do cliente (é o que a Vercel roda) |
 | `bun run e2e [ws://localhost:8787]` | Teste ponta a ponta contra um servidor rodando |
@@ -54,7 +54,7 @@ O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja 
 - **Commits:** Conventional Commits em inglês (`feat(engine): …`, `fix(web): …`, `docs: …`, `chore(tools): …`). O corpo explica o porquê. Código e docs vão em commits separados, como no histórico. A mensagem termina com `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - **Deploy:** o push na `master` publica o cliente. O servidor quem publica é o usuário: quando `packages/engine` ou `apps/server` mudarem de um jeito que afete o servidor, mande para ele o comando `cd apps/server && bunx wrangler deploy` e lembre a ordem (servidor primeiro, depois o push). Mudança só no cliente não precisa disso.
 - **Toda entrega atualiza `docs/ROADMAP.md`** (marcar `[x]`, criar itens novos) e, se houve decisão de projeto, **`docs/DECISIONS.md`**. Os dois em pt-BR.
-- **Antes de entregar:** `bun run typecheck`, `bun test packages` e `bun run build`. Mudança de jogo ou de visual se confere no navegador. Bug na engine se reproduz primeiro com um teste.
+- **Antes de entregar:** `bun run typecheck`, `bun run test` e `bun run build`. Mudança de jogo ou de visual se confere no navegador. Bug na engine se reproduz primeiro com um teste.
 - **Servidores do usuário:** ele costuma deixar `bun run dev:all` rodando (5173 e 8787). Não derrube esses processos. Para conferir algo, suba um Vite seu em outra porta (`cd apps/web && bunx vite --port 5174`), aponte para o servidor 8787 que já está rodando e encerre só o que você abriu.
 - **Sem arquivos soltos no repositório:** capturas de tela, simulações e scripts de teste vão para um diretório temporário fora do repo.
 - **Só free tier.** Ainda não há banco de dados; o Supabase fica para contas e ranking (Fase 6). Antes de propor um serviço novo, confira o limite gratuito dele.
@@ -67,7 +67,7 @@ O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja 
 - Funções e constantes exportadas levam JSDoc curto (`/** … */`) explicando o que fazem e o porquê. Constantes ajustáveis têm nome e unidade no comentário (ticks, casas, ms) e ficam em `constants.ts` ou no topo do arquivo; nada de números mágicos.
 - Comentários são poucos e explicam a intenção, não repetem o código. Imite o arquivo ao redor.
 - Prefira estender o que já existe (`blastCells`, `solidFor`, `canPlaceAt`, `lerpPlayer`, `combineInputs`…) a criar cópias parecidas.
-- Os testes ficam em `packages/engine/test/*.test.ts` e usam os helpers de `test/helpers.ts`: `makeGame` (mapa em ASCII), `corridor`, `testBomb`, `testFlame`, `run`, `send`, `startedMatch` e `pastCountdown` (partidas iniciadas pela sala começam com 2 s de "Pronto… Já!" em que ninguém anda). O cliente não tem testes automatizados; ele se confere no navegador.
+- Os testes ficam em `packages/engine/test/*.test.ts` e usam os helpers de `test/helpers.ts`: `makeGame` (mapa em ASCII), `corridor`, `testBomb`, `testFlame`, `run`, `send`, `startedMatch` e `pastCountdown` (partidas iniciadas pela sala começam com 2 s de "Pronto… Já!" em que ninguém anda). No cliente, só a predição e a reserva de reprodução têm testes (`apps/web/test`), com uma rede simulada (`loopback.ts`: a sala da engine faz de servidor, com atraso de ida e de volta); o resto se confere no navegador.
 - No React, o estado do jogo fica fora do React (refs e o loop de frames). O HUD só atualiza quando algo visível muda (`hudKey`).
 - O CSS fica todo em `apps/web/src/styles.css`. Animações respeitam `prefers-reduced-motion` e a classe `.reduce-motion` do `:root` (painel ⚙️).
 
