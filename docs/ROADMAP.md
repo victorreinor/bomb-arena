@@ -29,7 +29,7 @@ Legenda: `[x]` feito · `[ ]` pendente. Atualizar a cada entrega.
 - [x] 3 mapas novos: Campo Aberto (simples), Labirinto e Quadrantes (complexos); teste garante que todos são conectados
 - [x] Efeitos sonoros (bomba, explosão, power-up, morte, vitória/derrota) e músicas distintas (lobby leve / batalha acelerada e sombria), sintetizados; botões separados para música (M) e efeitos (N), salvos no navegador
 - [x] Teste e2e (`bun run e2e`) e fluxo de 3 abas verificado em Chrome headless
-- [ ] **Deploy** Vercel + Cloudflare (precisa do seu login; passos no README)
+- [x] **Deploy**: cliente na Vercel (https://bomb-arena-ten.vercel.app, publica a cada push na `master`) e servidor na Cloudflare (`wss://bomb-arena-server.bombarena.workers.dev`, publicado com `bunx wrangler deploy`)
 - [x] Predição de movimento no cliente: o próprio boneco anda, planta bomba e usa o pet na hora (antes esperava a ida e volta ao servidor, ~140 ms do Brasil); correções do servidor são suavizadas
 - [x] Reserva de reprodução que se ajusta à rede (1 a 3 ticks, antes 2 fixos) e vibração no celular (toque nos botões, bomba, item, golpe, morte; dá para desligar no ⚙️)
 - [x] Placar da sessão (🏆 por jogador) e série "melhor de 3 / 5" escolhida pelo anfitrião, com campeão anunciado
@@ -43,11 +43,16 @@ Legenda: `[x]` feito · `[ ]` pendente. Atualizar a cada entrega.
 
 ## Correções
 - [x] Botão de ação (Shift) não chegava ao servidor no modo online (soco, luva, arremesso e remota só funcionavam no modo local). Mensagens do cliente agora são tratadas na engine (`handleClientMessage`), com testes.
+- [x] O boneco dava um "pulo" no primeiro passo da partida: agora o relógio se alinha com o servidor antes de você se mexer, e a predição começa de onde o boneco estava desenhado
+- [x] O item só sumia (com som e efeito) um tempo depois de você passar por cima: agora a predição pega o item no quadro em que o boneco entra na casa
+
+## Documentação
+- [x] `CLAUDE.md` (guia para agentes de IA: comandos, regras, fluxo de trabalho, armadilhas), `AGENTS.md` apontando para ele e `docs/ARCHITECTURE.md` (como funciona por dentro e receitas)
 
 ## Dívida técnica (da revisão de código; nenhuma urgente)
 - [ ] Uma só mensagem `settings` para as opções do lobby (hoje uma por opção) — fazer quando entrar a próxima opção
 - [ ] Modo local rodando pela lógica de sala (bots, série e nomes iguais ao online) — fazer se o modo local ganhar opções de sala
-- [ ] Separar no tipo os campos que o servidor não envia (`rng`, `nextBombId`) — fazer junto com a predição de movimento
+- [ ] Separar no tipo os campos que o servidor não envia (`rng`, `nextBombId`). A predição já saiu e contorna isso recalculando `nextBombId` pelas bombas; fazer quando o protocolo mudar de novo
 - [ ] A engine registrar quem fez cada ação (chute, soco, arremesso, bomba plantada), por exemplo `Player.action = { kind, tick }`. Hoje o cliente deduz pela posição para escolher a pose do boneco; com o registro, a pose sai do estado e dá para creditar abates ("fulano explodiu beltrano"). Muda o protocolo: publicar o servidor junto
 - [ ] (opcional) Esconder `?itens=todos`, `?pet=`, `?vinganca=`, `?tempo=` em produção — só afetam o modo local
 - [ ] (descartado: ganho irrelevante) gravar volume só ao soltar o slider; contador de versão dos tiles no servidor
