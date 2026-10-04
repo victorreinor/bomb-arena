@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ABILITY_FIELDS, type AbilityKind, type Player } from "@bomberman/engine";
 import { COLOR_CSS } from "./colors";
 import { ItemIcon, PetIcon } from "./ItemIcon";
@@ -15,7 +16,7 @@ export function PlayerStats({ p }: { p: Player }) {
       {p.pet && (
         <span className="pet-badge" title={`${PET_INFO[p.pet.kind].name}: ${PET_INFO[p.pet.kind].desc}`}>
           <PetIcon kind={p.pet.kind} size={18} />
-          {PET_INFO[p.pet.kind].name}
+          <span className="pet-name">{PET_INFO[p.pet.kind].name}</span>
         </span>
       )}
       {ABILITIES.filter(([, key]) => p[key]).map(([kind]) => (
@@ -28,20 +29,22 @@ export function PlayerStats({ p }: { p: Player }) {
       )}
       {p.disease && (
         <span className="curse" title={`Maldição: ${DISEASE_NAME[p.disease.kind]}`}>
-          ☠ {DISEASE_NAME[p.disease.kind]}
+          ☠ <span className="curse-name">{DISEASE_NAME[p.disease.kind]}</span>
         </span>
       )}
     </span>
   );
 }
 
-/** One player's row in the HUD: colour chip, label and stats; greyed out once eliminated. */
-export function HudPlayer({ p, label }: { p: Player; label: string }) {
+/** One player's card in the HUD: colour chip, label and stats; outlined if it's `me`, greyed out once eliminated. */
+export function HudPlayer({ p, label, me = false }: { p: Player; label: ReactNode; me?: boolean }) {
   return (
-    <div className={`hud-player${p.alive ? "" : " dead"}`}>
-      <span className="hud-chip" style={{ background: COLOR_CSS[p.color] }} />
-      <span>{label}</span>
-      {!p.alive && p.ghost && <span title="Fantasma: joga bombas da borda">👻</span>}
+    <div className={`hud-player${p.alive ? "" : " dead"}${me ? " me" : ""}`}>
+      <span className="hud-name">
+        <span className="hud-chip" style={{ background: COLOR_CSS[p.color] }} />
+        <span className="hud-label">{label}</span>
+        {!p.alive && p.ghost && <span title="Fantasma: joga bombas da borda">👻</span>}
+      </span>
       <PlayerStats p={p} />
     </div>
   );

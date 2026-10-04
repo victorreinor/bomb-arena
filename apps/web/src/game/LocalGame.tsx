@@ -24,11 +24,11 @@ import { COLOR_NAMES } from "./colors";
 import { Effects } from "./effects";
 import { diffGame } from "./events";
 import { combineInputs, useControls } from "./controls";
+import { GameFrame } from "./GameFrame";
 import { feel } from "./haptics";
 import { hudKey } from "./hud";
 import { mapInfo, musicFor } from "./mapInfo";
 import { Keyboard, PLAYER_KEYS } from "./input";
-import { TouchControls } from "./TouchControls";
 import { MatchTimer } from "./MatchTimer";
 import { HudPlayer } from "./PlayerStats";
 import { Podium, podiumEntries } from "./Podium";
@@ -74,7 +74,7 @@ const newGame = (bots: BotLevel | null): GameState => {
 };
 
 /** Offline play with the shared engine: two people on one keyboard (`bots` null), or one person against bots of that level. */
-export function LocalGame({ bots }: { bots: BotLevel | null }) {
+export function LocalGame({ bots, onLeave }: { bots: BotLevel | null; onLeave: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [round, setRound] = useState(0);
   const [hud, setHud] = useState<GameState | null>(null);
@@ -168,27 +168,33 @@ export function LocalGame({ bots }: { bots: BotLevel | null }) {
   const podium = finished ? podiumEntries(finished, (id) => label(finished, id)) : [];
 
   return (
-    <div className="game-page">
-      <h1>{bots ? `Treino contra bots · ${BOT_LEVEL_NAMES[bots]}` : "Bomb Arena — modo local"}</h1>
-      <p>{bots ? "WASD/setas, Espaço/Enter, Shift, E · ou controle." : "Dois jogadores no mesmo teclado."} R reinicia.</p>
-      {hud && <MatchTimer game={hud} />}
-      {error && <p role="alert">Erro: {error}</p>}
-      <div className="hud">
-        {hud?.players.map((p, i) => (
-          <HudPlayer key={p.id} p={p} label={bots ? label(hud, p.id) : `${label(hud, p.id)} · ${KEY_HINTS[i]}`} />
-        ))}
-      </div>
-      <div className="stage" style={{ width: hud ? canvasSize(hud).width : undefined }}>
-        <canvas ref={canvasRef} />
-        {finished && (
+    <GameFrame
+      title={bots ? `${showTouch ? "Treino" : "Treino contra bots"} · ${BOT_LEVEL_NAMES[bots]}` : showTouch ? "Modo local" : "Bomb Arena — modo local"}
+      hint={<p>{bots ? "WASD/setas, Espaço/Enter, Shift, E · ou controle." : "Dois jogadores no mesmo teclado."} R reinicia.</p>}
+      timer={hud && <MatchTimer game={hud} />}
+      players={hud?.players.map((p, i) => (
+        <HudPlayer
+          key={p.id}
+          p={p}
+          me={!!bots && !isBotId(p.id)}
+          label={bots || showTouch ? label(hud, p.id) : `${label(hud, p.id)} · ${KEY_HINTS[i]}`}
+        />
+      ))}
+      notice={error && <p className="notice error" role="alert">Erro: {error}</p>}
+      canvasRef={canvasRef}
+      size={hud ? canvasSize(hud) : null}
+      overlay={
+        finished && (
           <div className="overlay podium-overlay">
             <h2>{winner ? `${COLOR_NAMES[winner.color]} venceu!` : "Empate!"}</h2>
             <Podium entries={podium} />
-            <button onClick={restart}>Jogar de novo (R)</button>
+            <button onClick={restart}>{showTouch ? "Jogar de novo" : "Jogar de novo (R)"}</button>
           </div>
-        )}
-      </div>
-      {showTouch && <TouchControls pad={touch} />}
-    </div>
+        )
+      }
+      touch={showTouch}
+      pad={showTouch ? touch : null}
+      onLeave={onLeave}
+    />
   );
 }

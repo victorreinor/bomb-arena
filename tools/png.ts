@@ -36,6 +36,13 @@ export class Img {
   }
 }
 
+/** `img` blown up `k` times, each pixel a k×k block (pixel art stays crisp). */
+export function upscale(img: Img, k: number): Img {
+  const out = new Img(img.w * k, img.h * k);
+  for (let y = 0; y < img.h; y++) for (let x = 0; x < img.w; x++) out.rect(x * k, y * k, k, k, img.get(x, y));
+  return out;
+}
+
 export function hex(h: string, a = 255): RGBA {
   const n = parseInt(h.replace("#", ""), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255, a];

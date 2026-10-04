@@ -4,12 +4,12 @@ import { audio } from "../game/audio";
 import { Effects } from "../game/effects";
 import { diffGame, type GameEvent } from "../game/events";
 import { combineInputs, useControls, type GamepadReader, type TouchPad } from "../game/controls";
+import { GameFrame } from "../game/GameFrame";
 import { feel } from "../game/haptics";
 import { hudKey } from "../game/hud";
 import { PredictedView, Predictor } from "../game/predict";
 import { mapInfo, musicFor } from "../game/mapInfo";
 import { Keyboard, PLAYER_KEYS } from "../game/input";
-import { TouchControls } from "../game/TouchControls";
 import { HudPlayer } from "../game/PlayerStats";
 import { Podium, podiumEntries } from "../game/Podium";
 import { canvasSize, render } from "../game/render";
@@ -137,39 +137,47 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
   const winner = finished?.players.find((p) => p.id === finished.winner);
   const podium = finished ? podiumEntries(finished, nameOf) : [];
   const secondsLeft = hud && hud.resultsIn > 0 ? Math.ceil(hud.resultsIn / TICK_RATE) : null;
+  const haunting = game?.phase === "playing" && game.players.some((p) => p.id === me && !p.alive && p.ghost);
 
   return (
-    <div className="game-page">
-      <div className="game-top">
-        <h1>Sala {room.code}</h1>
-        {game && <MatchTimer game={game} />}
-        <button className="ghost" onClick={onLeave}>Sair</button>
-      </div>
-      {!playing && <p className="notice">Partida em andamento — você entra na próxima. Assistindo!</p>}
-      {game?.players.some((p) => p.id === me && !p.alive && p.ghost) && game.phase === "playing" && (
-        <p className="notice">👻 Você virou fantasma: ande pela borda e jogue bombas para dentro com Espaço ou Enter.</p>
+    <GameFrame
+      title={`Sala ${room.code}`}
+      timer={game && <MatchTimer game={game} />}
+      players={game?.players.map((p) =>
+        p.id === me ? (
+          <HudPlayer key={p.id} p={p} me label={<>{nameOf(p.id)}<span className="hud-you"> (você)</span></>} />
+        ) : (
+          <HudPlayer key={p.id} p={p} label={nameOf(p.id)} />
+        ),
       )}
-      <div className="hud">
-        {game?.players.map((p) => (
-          <HudPlayer key={p.id} p={p} label={`${nameOf(p.id)}${p.id === me ? " (você)" : ""}`} />
-        ))}
-      </div>
-      <div className="stage" style={{ width: game ? canvasSize(game).width : undefined }}>
-        <canvas ref={canvasRef} />
-        {finished && (
+      notice={
+        !playing ? (
+          <p className="notice">Partida em andamento — você entra na próxima. Assistindo!</p>
+        ) : (
+          haunting && (
+            <p className="notice">
+              👻 Você virou fantasma: ande pela borda e jogue bombas para dentro com {showTouch ? "o 💣" : "Espaço ou Enter"}.
+            </p>
+          )
+        )
+      }
+      canvasRef={canvasRef}
+      size={game ? canvasSize(game) : null}
+      overlay={
+        finished && (
           <div className="overlay podium-overlay">
             <h2>{winner ? `${nameOf(winner.id)} venceu!` : "Empate!"}</h2>
             <Podium entries={podium} />
             {room.lastResult?.seriesWon && <p className="champion-banner">🏆 {room.lastResult.winnerName} venceu a série!</p>}
-            {showsScore(room) && (
-              <p>Placar: {room.members.map((m) => `${m.name} ${m.score}`).join(" · ")}</p>
-            )}
+            {showsScore(room) && <p>Placar: {room.members.map((m) => `${m.name} ${m.score}`).join(" · ")}</p>}
             {secondsLeft !== null && <p>Voltando ao lobby em {secondsLeft}s…</p>}
           </div>
-        )}
-      </div>
-      {showTouch && playing && <TouchControls pad={touch} />}
-      <p>Mover: WASD, setas ou controle · Bomba: Espaço/Enter (A) · Ação: Shift (B) · Pet: E ou / (Y)</p>
-    </div>
+        )
+      }
+      hint={<p>Mover: WASD, setas ou controle · Bomba: Espaço/Enter (A) · Ação: Shift (B) · Pet: E ou / (Y)</p>}
+      touch={showTouch}
+      pad={playing ? touch : null}
+      onLeave={onLeave}
+    />
   );
 }

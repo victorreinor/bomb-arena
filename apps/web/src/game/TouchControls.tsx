@@ -1,4 +1,4 @@
-import { useRef, type PointerEvent } from "react";
+import { useEffect, useRef, type PointerEvent } from "react";
 import { fourWay, type TouchPad } from "./controls";
 import { buzz } from "./haptics";
 
@@ -6,6 +6,17 @@ import { buzz } from "./haptics";
 export function TouchControls({ pad }: { pad: TouchPad }) {
   /** the d-pad's box, measured once per touch rather than on every move */
   const box = useRef<DOMRect | null>(null);
+  const root = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // iPhones turn a held or double touch into text selection, the magnifier or a zoom; the controls run on
+    // pointer events, which carry on regardless. (React's touch listeners are passive, so this one is native.)
+    const el = root.current;
+    if (!el) return;
+    const hold = (e: TouchEvent) => e.preventDefault();
+    el.addEventListener("touchstart", hold, { passive: false });
+    return () => el.removeEventListener("touchstart", hold);
+  }, []);
 
   const steer = (e: PointerEvent<HTMLDivElement>) => {
     const b = (box.current ??= e.currentTarget.getBoundingClientRect());
@@ -33,7 +44,7 @@ export function TouchControls({ pad }: { pad: TouchPad }) {
   );
 
   return (
-    <div className="touch-controls">
+    <div className="touch-controls" ref={root}>
       <div
         className="touch-dpad"
         aria-label="Direcional"

@@ -80,7 +80,7 @@ function Screens() {
     [],
   );
 
-  if (route.kind === "local") return <LocalGame bots={route.bots} />;
+  if (route.kind === "local") return <LocalGame bots={route.bots} onLeave={leave} />;
   if (route.kind === "room") {
     return (
       <RoomScreen

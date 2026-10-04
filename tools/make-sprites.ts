@@ -14,7 +14,7 @@ import { bomberSheet, emoteSheet } from "./bomber-art";
 import { petSheet } from "./pet-art";
 import { tileSheet } from "./tile-art";
 import { TILE_THEMES } from "../apps/web/src/game/sprites";
-import { Img, encodePng, fromAscii, hex, lighten, shade, type RGBA } from "./png";
+import { Img, encodePng, fromAscii, hex, lighten, shade, upscale, type RGBA } from "./png";
 
 const OUT = join(import.meta.dir, "../apps/web/public/sprites");
 mkdirSync(OUT, { recursive: true });
@@ -56,6 +56,23 @@ const bomb = new Img(T * 3, T);
 [6, 7, 6].forEach((r, i) => bomb.blit(bombFrame(r), i * T, 0));
 save("bomb.png", bomb);
 save("favicon.png", bombFrame(6));
+
+// -------------------------------------------------------------- app icons
+
+/** the interface's accent colour (--accent in styles.css), behind the bomb like the touch bomb button */
+const ICON_BACKGROUND = "#ffb62e";
+/** the bomb stays within this share of the icon, inside the circle launchers may crop a "maskable" icon to */
+const ICON_ART_SHARE = 0.62;
+
+// home-screen icons: iOS asks for 180, the web app manifest for 192 and 512
+for (const size of [180, 192, 512]) {
+  const k = Math.floor((size * ICON_ART_SHARE) / T);
+  const icon = new Img(size, size);
+  icon.rect(0, 0, size, size, hex(ICON_BACKGROUND));
+  const at = Math.round((size - T * k) / 2);
+  icon.blit(upscale(bombFrame(7), k), at, at);
+  save(`icon-${size}.png`, icon);
+}
 
 // -------------------------------------------------------------- power-ups
 
