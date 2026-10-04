@@ -9,6 +9,9 @@ Legenda: `[x]` feito · `[ ]` pendente. Atualizar a cada entrega.
 - [x] Mapa clássico (blocos moles aleatórios por seed)
 - [x] Testes da engine (`bun test packages`)
 - [x] Sprites originais geradas por script (`bun run sprites`): bomber x4 cores, blocos, bomba, power-ups
+- [x] Boneco novo (estilo "Clássico" escolhido entre três propostas): 16x24, com braços, luvas e botas, e poses de andar, chutar, socar, arremessar, carregar, plantar, montado, tonto e atingido; pódio redesenhado
+- [x] Um cenário por mapa, com profundidade (face de cima, face da frente, sombra no chão) e variações de chão: Clássico no Jardim, Campo Aberto na Neve, Labirinto no Templo, Quadrantes na Fábrica; a prévia do lobby e os destroços seguem o cenário
+- [x] Animações na interface: carrossel de mapas deslizando para o lado certo, botões que afundam ao clicar, telas e cartões entrando suavemente, jogadores e estados do lobby com animação; tudo respeita "reduzir movimento"
 - [x] Cliente canvas + modo local 2 jogadores no mesmo teclado (`bun run dev`)
 - [x] Conferido no navegador pelo usuário
 
@@ -44,6 +47,7 @@ Legenda: `[x]` feito · `[ ]` pendente. Atualizar a cada entrega.
 - [ ] Uma só mensagem `settings` para as opções do lobby (hoje uma por opção) — fazer quando entrar a próxima opção
 - [ ] Modo local rodando pela lógica de sala (bots, série e nomes iguais ao online) — fazer se o modo local ganhar opções de sala
 - [ ] Separar no tipo os campos que o servidor não envia (`rng`, `nextBombId`) — fazer junto com a predição de movimento
+- [ ] A engine registrar quem fez cada ação (chute, soco, arremesso, bomba plantada), por exemplo `Player.action = { kind, tick }`. Hoje o cliente deduz pela posição para escolher a pose do boneco; com o registro, a pose sai do estado e dá para creditar abates ("fulano explodiu beltrano"). Muda o protocolo: publicar o servidor junto
 - [ ] (opcional) Esconder `?itens=todos`, `?pet=`, `?vinganca=`, `?tempo=` em produção — só afetam o modo local
 - [ ] (descartado: ganho irrelevante) gravar volume só ao soltar o slider; contador de versão dos tiles no servidor
 
@@ -66,6 +70,7 @@ Legenda: `[x]` feito · `[ ]` pendente. Atualizar a cada entrega.
 - [x] 4 pets com poder na tecla própria (E / "/"): Corredor (dispara até bater), Saltador (pula 2 casas, imune ao fogo no ar), Empurrador (empurra tijolo 1 casa), Chutador (chute forte, sem precisar do item)
 - [x] Pet aguenta 1 golpe (antes do colete) e foge; jogador fica 2,5 s invulnerável
 - [x] Sprites originais dos pets, ícone no placar, legenda no lobby, efeitos e sons; atalho `?itens=todos&pet=<tipo>` no modo local
+- [x] Pets redesenhados como bichos de verdade (ema, sapo, tatu, jumento, com sela na cor do item), em duas camadas: o corpo atrás do boneco e a cabeça na frente
 - [ ] Balancear recargas e a chance do ovo com playtests
 
 ## Fase 5 — Mapas complexos
