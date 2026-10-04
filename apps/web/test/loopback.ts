@@ -1,5 +1,6 @@
 import {
   TICK_MS,
+  TICK_RATE,
   emptyInput,
   handleClientMessage,
   inputAcks,
@@ -11,6 +12,7 @@ import {
   type GameState,
   type Input,
   type InputAck,
+  type SentLists,
   type RoomState,
   type Tile,
 } from "@bomberman/engine";
@@ -38,6 +40,8 @@ export interface Network {
   jitter?: (tick: number) => number;
   /** play a server from before the acks: snapshots never say which input is in force */
   noAcks?: boolean;
+  /** the protocol the client speaks: 2 (the default) gets changes rather than every player and bomb in full */
+  protocol?: 1 | 2;
 }
 
 export interface Frame {
@@ -69,6 +73,7 @@ export class Loopback {
   private toServer: { at: number; msg: ClientMsg }[] = [];
   private toClient: { at: number; msg: StateMsg }[] = [];
   private sentTiles: Tile[] | null = null;
+  private sentLists: SentLists | null = null;
   private held: Input = emptyInput();
   private pressed = new Set<Button>();
   private last = { dx: 0, dy: 0, at: -Infinity };
@@ -133,9 +138,11 @@ export class Loopback {
     const tilesChanged = !this.sentTiles || game.tiles.some((t, i) => t !== this.sentTiles![i]);
     if (tilesChanged) this.sentTiles = [...game.tiles];
     const acks = this.net.noAcks ? undefined : inputAcks(this.room);
-    const msg: StateMsg = JSON.parse(
-      JSON.stringify({ round: this.room.round, resultsIn: this.room.resultsTicksLeft, game: toSnapshot(game, tilesChanged), acks }),
-    );
+    // as the server: changes for a protocol 2 client, with players and bombs in full once a second
+    const sent = this.net.protocol === 1 || game.tick % TICK_RATE === 0 ? null : this.sentLists;
+    this.sentLists = structuredClone({ players: game.players, bombs: game.bombs });
+    const snap = toSnapshot(game, tilesChanged, sent);
+    const msg: StateMsg = JSON.parse(JSON.stringify({ round: this.room.round, resultsIn: this.room.resultsTicksLeft, game: snap, acks }));
     // one connection keeps its order: a late snapshot holds up the ones behind it
     const due = this.now + this.net.down + (this.net.jitter?.(game.tick) ?? 0);
     this.toClient.push({ at: Math.max(due, this.toClient.at(-1)?.at ?? -Infinity), msg });

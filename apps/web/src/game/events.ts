@@ -74,6 +74,19 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
       events.push({ type: "itemDrop", x: u.x, y: u.y, kind: u.kind });
     }
   }
+  // an item gone from under a bomber, with no fire and no falling block there, was taken: even one that
+  // added nothing (already at the maximum)
+  const takers = new Set<string>();
+  for (const u of prev.powerUps) {
+    if (next.powerUps.some((o) => o.x === u.x && o.y === u.y && o.kind === u.kind)) continue;
+    if (next.flames.some((f) => f.x === u.x && f.y === u.y) || next.tiles[u.y * next.width + u.x] === TILE.HARD) continue;
+    const taker = next.players.find((p) => p.alive && Math.floor(p.x) === u.x && Math.floor(p.y) === u.y);
+    if (!taker) continue;
+    takers.add(taker.id);
+    if (u.kind !== "skull") events.push({ type: "pickup", id: taker.id, x: taker.x, y: taker.y, kind: u.kind });
+    // a first curse is announced below, as the curse appears; a new one on top of it, here
+    else if (prev.players.find((p) => p.id === taker.id)?.disease) events.push({ type: "infected", id: taker.id, x: taker.x, y: taker.y });
+  }
 
   const gone = prev.bombs.filter((b) => !next.bombs.some((o) => o.id === b.id));
   if (gone.length > 0) {
@@ -130,7 +143,8 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
     if (before.jump && !p.jump) events.push({ type: "petLand", x: p.x, y: p.y });
     if (p.stunned > before.stunned) events.push({ type: "stun", id: p.id, x: p.x, y: p.y });
     if (before.vest && !p.vest) events.push({ type: "shield", x: p.x, y: p.y });
-    const kind = pickedKind(before, p);
+    // an item taken out of sight (snapshots skipped and the bomber walked on) still shows in what improved
+    const kind = takers.has(p.id) ? null : pickedKind(before, p);
     if (p.disease && !before.disease) events.push({ type: "infected", id: p.id, x: p.x, y: p.y });
     else if (kind) events.push({ type: "pickup", id: p.id, x: p.x, y: p.y, kind });
   }

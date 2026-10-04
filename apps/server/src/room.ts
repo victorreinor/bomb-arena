@@ -14,8 +14,10 @@ import {
   toSnapshot,
   type ClientMsg,
   type ErrorCode,
+  type GameSnapshot,
   type InputAck,
   type RoomState,
+  type SentLists,
   type ServerMsg,
   type Tile,
 } from "@bomberman/engine";
@@ -32,6 +34,28 @@ const MESSAGES_PER_SECOND = 40;
 const MESSAGE_BURST = 80;
 /** a client still flooding after this many dropped messages gets disconnected */
 const MAX_DROPPED = 300;
+/**
+ * Clients that take changes still get every player and bomb in full this often (in ticks), so one that
+ * somehow fell out of step is back in a second.
+ */
+const FULL_LISTS_TICKS = TICK_RATE;
+/**
+ * A connection we are done with is left this long (ms) for the client to hang up: when the server closes
+ * first, workerd logs "Network connection lost". Clients that don't (older ones) are closed after it.
+ */
+const HANG_UP_GRACE_MS = 1000;
+
+/**
+ * Answers a client's close. At our compatibility date workerd doesn't do it by itself, and until it's
+ * answered the browser never reports the socket closed (a refused client would never get to its error).
+ */
+function closeBack(ws: WebSocket) {
+  try {
+    ws.close(1000);
+  } catch {
+    // already closed
+  }
+}
 
 /**
  * One instance per room code. Holds the authoritative room + match state and
@@ -44,6 +68,8 @@ interface Session {
   /** message rate limit for this connection */
   bucket: TokenBucket;
   dropped: number;
+  /** the protocol the client speaks (see PROTOCOL_VERSION) */
+  version: number;
 }
 
 export class Room {
@@ -52,6 +78,8 @@ export class Room {
   /** tiles as last broadcast; snapshots only carry tiles when these change (or someone new arrives) */
   private sentTiles: Tile[] | null = null;
   private sentRound = -1;
+  /** players and bombs as last broadcast: clients that speak protocol 2 only get what changed in them */
+  private sentLists: SentLists | null = null;
   /** the input acknowledgements as last broadcast, by player: snapshots only carry the ones that changed */
   private sentAcks = new Map<string, string>();
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -71,6 +99,7 @@ export class Room {
     const name = url.searchParams.get("name") ?? "";
     const create = url.searchParams.get("create") === "1";
     const max = url.searchParams.get("max");
+    const version = Number(url.searchParams.get("v")) || 1;
     const capacity = clampCapacity(max === null ? undefined : Number(max));
 
     const pair = new WebSocketPair();
@@ -89,7 +118,7 @@ export class Room {
       if (!result.ok) {
         this.reject(server, "full", "A sala está cheia.");
       } else {
-        this.attach(server, pid);
+        this.attach(server, pid, version);
       }
     }
     return new Response(null, { status: 101, webSocket: client });
@@ -98,10 +127,25 @@ export class Room {
   /** Tell the client why it can't stay, then hang up. */
   private reject(ws: WebSocket, code: ErrorCode, message: string) {
     this.send(ws, { t: "error", code, message });
-    ws.close(4000, code);
+    this.hangUp(ws, 4000, code);
   }
 
-  private attach(ws: WebSocket, id: string) {
+  /** Close a connection we are done with, unless the client does first (see HANG_UP_GRACE_MS). */
+  private hangUp(ws: WebSocket, code: number, reason: string) {
+    const timer = setTimeout(() => {
+      try {
+        ws.close(code, reason);
+      } catch {
+        // already closed
+      }
+    }, HANG_UP_GRACE_MS);
+    ws.addEventListener("close", () => {
+      clearTimeout(timer);
+      closeBack(ws);
+    });
+  }
+
+  private attach(ws: WebSocket, id: string, version: number) {
     // the same player reconnecting (e.g. a refresh) replaces the stale socket
     for (const [other, session] of this.sessions) {
       if (session.id === id) {
@@ -109,10 +153,15 @@ export class Room {
         this.reject(other, "replaced", "Você entrou nesta sala em outra aba.");
       }
     }
-    this.sessions.set(ws, { id, bucket: new TokenBucket(MESSAGES_PER_SECOND, MESSAGE_BURST, Date.now()), dropped: 0 });
-    this.sentTiles = null; // the newcomer needs the full board
+    this.sessions.set(ws, { id, bucket: new TokenBucket(MESSAGES_PER_SECOND, MESSAGE_BURST, Date.now()), dropped: 0, version });
+    // the newcomer needs the board, the players and the bombs in full
+    this.sentTiles = null;
+    this.sentLists = null;
     ws.addEventListener("message", (e) => this.onMessage(ws, e));
-    ws.addEventListener("close", () => this.onClose(ws));
+    ws.addEventListener("close", () => {
+      closeBack(ws);
+      this.onClose(ws);
+    });
     ws.addEventListener("error", () => this.onClose(ws));
 
     this.send(ws, { t: "welcome", id });
@@ -161,7 +210,7 @@ export class Room {
       if (room.members.some((m) => m.id === session.id)) continue;
       this.sessions.delete(ws);
       if (kicked) this.reject(ws, "removed", "O anfitrião tirou você da sala.");
-      else ws.close(1000, "left");
+      else this.hangUp(ws, 1000, "left");
     }
   }
 
@@ -210,13 +259,14 @@ export class Room {
     // once the podium is up and the last flames are out nothing moves: once a second keeps the countdown going
     const idle = game.phase === "finished" && game.flames.length === 0;
     if (idle && room.resultsTicksLeft % TICK_RATE !== 0) return;
-    const tilesChanged =
-      this.sentRound !== room.round || !this.sentTiles || game.tiles.some((t, i) => t !== this.sentTiles![i]);
-    if (tilesChanged) {
-      if (this.sentRound !== room.round) this.sentAcks.clear();
-      this.sentTiles = [...game.tiles];
+    if (this.sentRound !== room.round) {
       this.sentRound = room.round;
+      this.sentTiles = null;
+      this.sentLists = null;
+      this.sentAcks.clear();
     }
+    const tilesChanged = !this.sentTiles || game.tiles.some((t, i) => t !== this.sentTiles![i]);
+    if (tilesChanged) this.sentTiles = [...game.tiles];
     const acks: Record<string, InputAck> = {};
     for (const [id, ack] of Object.entries(inputAcks(room))) {
       const key = ack.join(":");
@@ -224,12 +274,28 @@ export class Room {
       this.sentAcks.set(id, key);
       acks[id] = ack;
     }
-    this.broadcast({ t: "state", round: room.round, resultsIn: room.resultsTicksLeft, game: toSnapshot(game, tilesChanged), ...(Object.keys(acks).length > 0 && { acks }) });
+    const sent = game.tick % FULL_LISTS_TICKS === 0 ? null : this.sentLists;
+    this.sentLists = structuredClone({ players: game.players, bombs: game.bombs });
+    const state = (snap: GameSnapshot): ServerMsg => ({ t: "state", round: room.round, resultsIn: room.resultsTicksLeft, game: snap, ...(Object.keys(acks).length > 0 && { acks }) });
+    // older clients get every player and bomb in full; each form is only built if someone needs it
+    let full: string | undefined;
+    let lean: string | undefined;
+    for (const [ws, session] of this.sessions) {
+      const data =
+        session.version >= 2
+          ? (lean ??= JSON.stringify(state(toSnapshot(game, tilesChanged, sent))))
+          : (full ??= JSON.stringify(state(toSnapshot(game, tilesChanged))));
+      this.sendRaw(ws, data);
+    }
   }
 
   private send(ws: WebSocket, msg: ServerMsg) {
+    this.sendRaw(ws, JSON.stringify(msg));
+  }
+
+  private sendRaw(ws: WebSocket, data: string) {
     try {
-      ws.send(JSON.stringify(msg));
+      ws.send(data);
     } catch {
       // socket already closing; its close handler cleans up
     }
@@ -237,12 +303,6 @@ export class Room {
 
   private broadcast(msg: ServerMsg) {
     const data = JSON.stringify(msg);
-    for (const ws of this.sessions.keys()) {
-      try {
-        ws.send(data);
-      } catch {
-        // see send()
-      }
-    }
+    for (const ws of this.sessions.keys()) this.sendRaw(ws, data);
   }
 }

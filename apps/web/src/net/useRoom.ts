@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ClientMsg, ErrorCode, RoomView, ServerMsg } from "@bomberman/engine";
+import { PROTOCOL_VERSION, type ClientMsg, type ErrorCode, type RoomView, type ServerMsg } from "@bomberman/engine";
 import { playerId, serverUrl } from "../config";
 import { SnapshotBuffer, percentile } from "../game/snapshots";
 
@@ -50,7 +50,7 @@ export function useRoom(opts: { code: string; name: string; create: boolean; cap
     };
 
     const connect = () => {
-      const params = new URLSearchParams({ pid: me, name });
+      const params = new URLSearchParams({ pid: me, name, v: String(PROTOCOL_VERSION) });
       if (create && !joined) {
         params.set("create", "1");
         params.set("max", String(capacity));
@@ -77,7 +77,11 @@ export function useRoom(opts: { code: string; name: string; create: boolean; cap
           if (trips.length > PING_SAMPLES) trips.shift();
           setPing(Math.round(percentile(trips, 0.5)));
         }
-        else if (msg.t === "error") rejected = { code: msg.code, message: msg.message };
+        else if (msg.t === "error") {
+          // hang up ourselves rather than wait for the server to (it logs an error when it closes first)
+          rejected = { code: msg.code, message: msg.message };
+          ws.close();
+        }
       };
       ws.onclose = (e) => {
         if (disposed || wsRef.current !== ws) return;

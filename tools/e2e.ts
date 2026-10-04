@@ -2,7 +2,7 @@
  * End-to-end smoke test against a running server (`bun run dev:server`).
  * Usage: bun run e2e [ws://localhost:8787]
  */
-import { randomRoomCode, type ClientMsg, type RoomView, type ServerMsg } from "../packages/engine/src";
+import { PROTOCOL_VERSION, fromSnapshot, randomRoomCode, type ClientMsg, type GameState, type RoomView, type ServerMsg } from "../packages/engine/src";
 
 const BASE = process.argv[2] ?? "ws://localhost:8787";
 
@@ -21,12 +21,15 @@ class Client {
   constructor(
     public name: string,
     public pid = `${name}-${Math.random().toString(36).slice(2)}-xxxxxxxx`.slice(0, 30),
+    /** the protocol to speak (as the web client does); without one the server sends everything in full */
+    public version?: number,
   ) {}
 
   connect(code: string, create = false, max?: number): Promise<void> {
     return new Promise((resolve, reject) => {
       this.closed = false;
-      this.ws = new WebSocket(`${BASE}/ws/${code}?pid=${this.pid}&name=${this.name}${create ? "&create=1" : ""}${max ? `&max=${max}` : ""}`);
+      const v = this.version ? `&v=${this.version}` : "";
+      this.ws = new WebSocket(`${BASE}/ws/${code}?pid=${this.pid}&name=${this.name}${create ? "&create=1" : ""}${max ? `&max=${max}` : ""}${v}`);
       this.ws.onmessage = (e) => {
         const msg = JSON.parse(String(e.data)) as ServerMsg;
         if (msg.t === "room") this.room = msg.room;
@@ -201,6 +204,28 @@ lean.send({ t: "ping", at: 1234.5 });
 await until("pong", () => lean.pongs.length > 0);
 check("a ping is answered with the same stamp", lean.pongs[0] === 1234.5);
 
+// a client that speaks protocol 2 gets players and bombs as changes (in full once a second) and can rebuild them
+const delta = new Client("Dora", undefined, PROTOCOL_VERSION);
+await delta.connect(randomRoomCode(), true, 2);
+await until("delta room", () => delta.room !== null);
+delta.send({ t: "addBot" });
+await until("delta bot", () => delta.room!.members.length === 2);
+delta.send({ t: "start" });
+await until("delta states", () => delta.states.length > 75, 5000);
+const deltaStates = delta.states.map((s) => s.game);
+check("protocol 2: most snapshots carry changes, not players", deltaStates.filter((g) => g.changes && !g.players).length > 50);
+check("protocol 2: players come in full at least once a second", deltaStates.filter((g) => g.players).length >= 2);
+let rebuilt: GameState | null = null;
+let rebuildOk = true;
+let lastTiles = deltaStates[0].tiles!;
+for (const g of deltaStates) {
+  lastTiles = g.tiles ?? lastTiles;
+  const next = fromSnapshot(g, lastTiles, rebuilt);
+  if (!next || (g.players && rebuilt && g.players.length !== rebuilt.players.length)) rebuildOk = false;
+  rebuilt = next ?? rebuilt;
+}
+check("protocol 2: every snapshot rebuilds on the one before", rebuildOk && rebuilt!.players.every((p) => typeof p.x === "number" && p.id !== undefined));
+
 // the host can send someone out: they are told why and hung up on, and the room no longer lists them
 const kHost = new Client("Kai");
 const kGuest = new Client("Kim");
@@ -223,6 +248,6 @@ await watcher.connect(leanRoom);
 await until("room gone or empty", () => watcher.errors.length > 0 || watcher.room !== null);
 check("after the last human leaves, the room (and its bots) is gone", watcher.errors[0] === "not_found");
 
-for (const cl of [a, b, c, d, e1, ghost, dup, h, i2, j, lean, watcher, kHost, kGuest]) cl.ws?.close();
+for (const cl of [a, b, c, d, e1, ghost, dup, h, i2, j, lean, watcher, kHost, kGuest, delta]) cl.ws?.close();
 console.log(failed === 0 ? "\nAll e2e checks passed" : `\n${failed} check(s) failed`);
 process.exit(failed === 0 ? 0 : 1);

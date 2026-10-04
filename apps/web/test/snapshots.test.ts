@@ -70,6 +70,28 @@ describe("SnapshotBuffer", () => {
     expect(latest.tiles).toEqual(game.tiles);
   });
 
+  test("changes build on the snapshot before, even one too old to show", () => {
+    const game = makeGame(corridor("1.....2"));
+    const buffer = new SnapshotBuffer();
+    step(game);
+    buffer.push(1, -1, wire(game), 0);
+    let sent = structuredClone({ players: game.players, bombs: game.bombs });
+    const changes = (dx: number) => {
+      step(game, { p1: { dx } });
+      const snap: GameSnapshot = JSON.parse(JSON.stringify(toSnapshot(game, false, sent)));
+      sent = structuredClone({ players: game.players, bombs: game.bombs });
+      return snap;
+    };
+    buffer.push(1, -1, changes(0), 33);
+    // p1 sets off (it turns and starts moving) in a snapshot that turns up out of place: not shown, but
+    // the next changes (only x now) start from it
+    const stale = changes(1);
+    stale.tick = 1;
+    buffer.push(1, -1, stale, 66);
+    buffer.push(1, -1, changes(1), 99);
+    expect(buffer.sample(1000)!.latest.players).toEqual(game.players);
+  });
+
   test("a snapshot no newer than the newest is dropped", () => {
     const game = makeGame(corridor("1.....2"));
     const buffer = new SnapshotBuffer();

@@ -38,6 +38,7 @@ describe("Predictor over a pretend network", () => {
     ["Brazil", BRAZIL],
     ["nearby", { up: 20, down: 45 }],
     ["lopsided, with late snapshots", { up: 110, down: 40, jitter: (tick: number) => (tick % 7 === 0 ? 60 : 0) }],
+    ["every player in full, as before protocol 2", { ...BRAZIL, protocol: 1 as const }],
   ] as const)("agrees with the server (%s): never more than a tick's walk off, and ends exactly where the server has us", (_, net) => {
     const lb = connected(net);
     const frames: Frame[] = [];

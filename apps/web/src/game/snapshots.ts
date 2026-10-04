@@ -1,4 +1,4 @@
-import { TICK_MS, fromSnapshot, type GameSnapshot, type GameState, type InputAck, type Player, type Tile } from "@bomberman/engine";
+import { TICK_MS, fromSnapshot, type GameSnapshot, type GameState, type InputAck, type Player, type SentLists, type Tile } from "@bomberman/engine";
 
 const MAX_BUFFER = 30;
 /** how many snapshots the lateness estimate looks back over (about two seconds) */
@@ -72,6 +72,8 @@ export class SnapshotBuffer {
   private drained = -1;
   /** the board as last received: snapshots only carry tiles when they change */
   private tiles: Tile[] | null = null;
+  /** players and bombs as of the last snapshot received: the next one may only carry what changed in them */
+  private lists: SentLists | null = null;
   /** arrival time minus the snapshot's place in the tick schedule, for recent snapshots */
   private transits: number[] = [];
   private delay = START_DELAY;
@@ -82,13 +84,16 @@ export class SnapshotBuffer {
       this.snaps = [];
       this.drained = -1;
       this.tiles = null;
+      this.lists = null;
       this.acks = {};
       this.transits = []; // tick numbers start over
     }
     Object.assign(this.acks, acks);
     if (snap.tiles) this.tiles = snap.tiles;
     if (!this.tiles) return; // can't draw a board we haven't seen yet
-    const game = fromSnapshot(snap, this.tiles);
+    const game = fromSnapshot(snap, this.tiles, this.lists);
+    if (!game) return; // changes with nothing to apply them to: wait for the next full set
+    this.lists = { players: game.players, bombs: game.bombs }; // even if this snapshot is too old to show, the next one's changes build on it
     this.resultsIn = resultsIn;
     const newest = this.snaps.at(-1);
     if (newest && game.tick <= newest.tick) return;
@@ -119,6 +124,7 @@ export class SnapshotBuffer {
     this.resultsIn = -1;
     this.drained = -1;
     this.tiles = null;
+    this.lists = null;
     this.acks = {};
     this.transits = [];
   }

@@ -1,6 +1,6 @@
 import type { BotLevel } from "./bot";
 import { TICK_RATE } from "./constants";
-import type { Flame, GameState, Tile } from "./types";
+import type { Bomb, Flame, GameState, Player, Tile } from "./types";
 
 export const MIN_MEMBERS = 2;
 export const MAX_MEMBERS = 4;
@@ -106,27 +106,95 @@ export type ServerMsg =
   | { t: "error"; code: ErrorCode; message: string };
 
 /**
- * What goes over the wire every tick: the game minus what clients never use (the RNG, so nobody can
- * predict drops, the bomb id counter, whose blast each flame is) and with `tiles` only when they changed.
+ * The protocol a client speaks, sent as `v` when it connects. 2: it understands snapshots whose players
+ * and bombs only carry what changed (`changes`). A client that doesn't say gets them in full.
  */
-export type GameSnapshot = Omit<GameState, "tiles" | "rng" | "nextBombId" | "flames"> & {
-  tiles?: Tile[];
-  flames: Omit<Flame, "owner">[];
-};
+export const PROTOCOL_VERSION = 2;
 
-export function toSnapshot(game: GameState, withTiles: boolean): GameSnapshot {
-  const { rng: _rng, nextBombId: _next, tiles, flames, ...rest } = game;
-  const lean = { ...rest, flames: flames.map(({ owner: _owner, ...f }) => f) };
-  return withTiles ? { ...lean, tiles } : lean;
+/** Players and bombs as last sent to the clients that take changes: what the next changes are measured against. */
+export interface SentLists {
+  players: Player[];
+  bombs: Bomb[];
 }
 
 /**
- * Rebuilds a full state from a snapshot and the last tiles received. Flames come without their owner
- * (only the server credits knockouts), and a server from before the countdown sends no `goTick`.
+ * What changed since the previous snapshot. Players: one entry each, in order, with the fields that
+ * changed (null if none did). Bombs: every bomb still there, in order, by id, with the fields that
+ * changed (a new one in full); those left out are gone.
  */
-export function fromSnapshot(snap: GameSnapshot, lastTiles: Tile[]): GameState {
+export interface SnapshotChanges {
+  players: (Partial<Player> | null)[];
+  bombs: (Partial<Bomb> & Pick<Bomb, "id">)[];
+}
+
+/**
+ * What goes over the wire every tick: the game minus what clients never use (the RNG, so nobody can
+ * predict drops, the bomb id counter, whose blast each flame is), with `tiles` only when they changed
+ * and, for clients that speak protocol 2, `changes` standing in for `players` and `bombs` between full ones.
+ */
+export type GameSnapshot = Omit<GameState, "tiles" | "rng" | "nextBombId" | "flames" | "players" | "bombs"> & {
+  tiles?: Tile[];
+  flames: Omit<Flame, "owner">[];
+  players?: Player[];
+  bombs?: Bomb[];
+  changes?: SnapshotChanges;
+};
+
+/**
+ * The snapshot of `game`. With `sent` (players and bombs as last sent, to a client that keeps up with
+ * every snapshot) only what changed in them goes; without, or once the players no longer line up, all of them.
+ */
+export function toSnapshot(game: GameState, withTiles: boolean, sent: SentLists | null = null): GameSnapshot {
+  const { rng: _rng, nextBombId: _next, tiles, flames, players, bombs, ...rest } = game;
+  const lean: GameSnapshot = { ...rest, flames: flames.map(({ owner: _owner, ...f }) => f) };
+  const sameLineUp = sent?.players.length === players.length && sent.players.every((p, i) => p.id === players[i].id);
+  if (sent && sameLineUp) {
+    const known = new Map(sent.bombs.map((b) => [b.id, b]));
+    lean.changes = {
+      players: players.map((p, i) => changedFields(sent.players[i], p)),
+      bombs: bombs.map((b) => {
+        const was = known.get(b.id);
+        return was ? { ...changedFields(was, b), id: b.id } : b;
+      }),
+    };
+  } else {
+    Object.assign(lean, { players, bombs });
+  }
+  return withTiles ? { ...lean, tiles } : lean;
+}
+
+const sameValue = (a: unknown, b: unknown) =>
+  a === b || (typeof a === "object" && typeof b === "object" && a !== null && b !== null && JSON.stringify(a) === JSON.stringify(b));
+
+/** The fields of `after` that differ from `before`; null when none do. */
+function changedFields<T extends object>(before: T, after: T): Partial<T> | null {
+  const changed: Partial<T> = {};
+  for (const key of Object.keys(after) as (keyof T)[]) {
+    if (!sameValue(after[key], before[key])) changed[key] = after[key];
+  }
+  return Object.keys(changed).length > 0 ? changed : null;
+}
+
+/**
+ * Rebuilds a full state from a snapshot, the last tiles received and the players and bombs as of the
+ * previous snapshot (which its `changes` apply to). Flames come without their owner (only the server
+ * credits knockouts), and a server from before the countdown sends no `goTick`. Null when the snapshot
+ * only has changes and there is nothing to apply them to.
+ */
+export function fromSnapshot(snap: GameSnapshot, lastTiles: Tile[], last: SentLists | null = null): GameState | null {
+  const { changes, ...rest } = snap;
+  let { players, bombs } = snap;
+  if (changes) {
+    if (!last || last.players.length !== changes.players.length) return null;
+    const known = new Map(last.bombs.map((b) => [b.id, b]));
+    players = last.players.map((p, i) => (changes.players[i] ? { ...p, ...changes.players[i] } : p));
+    bombs = changes.bombs.map((b) => ({ ...known.get(b.id), ...b }) as Bomb);
+  }
+  if (!players || !bombs) return null;
   return {
-    ...snap,
+    ...rest,
+    players,
+    bombs,
     tiles: snap.tiles ?? lastTiles,
     flames: snap.flames.map((f) => ({ ...f, owner: "" })),
     goTick: snap.goTick ?? 0,

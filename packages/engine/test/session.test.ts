@@ -12,7 +12,10 @@ import {
   roomView,
   stepRoom,
   toSnapshot,
+  BOMB_FUSE_TICKS,
+  TILE,
   type RoomState,
+  type SentLists,
 } from "../src";
 import { pastCountdown, send } from "./helpers";
 
@@ -127,10 +130,53 @@ describe("snapshots", () => {
     expect("nextBombId" in lean).toBe(false);
     expect(lean.tiles).toBeUndefined();
     expect(toSnapshot(game, true).tiles).toEqual(game.tiles);
-    const rebuilt = fromSnapshot(lean, game.tiles);
+    const rebuilt = fromSnapshot(lean, game.tiles)!;
     expect(rebuilt.tiles).toBe(game.tiles);
     expect(rebuilt.players).toEqual(game.players);
     expect(JSON.stringify(lean).length).toBeLessThan(JSON.stringify(game).length - 300);
+  });
+
+  test("protocol 2: players and bombs carry only what changed, and a client rebuilds them exactly", () => {
+    const room = lobby(3);
+    start(room);
+    const game = room.game!;
+    game.tiles = game.tiles.map((t) => (t === TILE.SOFT ? TILE.EMPTY : t));
+    const lists = () => structuredClone({ players: game.players, bombs: game.bombs });
+    let sent = lists();
+    let known: SentLists = fromSnapshot(JSON.parse(JSON.stringify(toSnapshot(game, true))), game.tiles)!;
+    const moves = [{ dx: 1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: 0 }];
+    let bombsSeen = 0;
+    for (let t = 0; t < BOMB_FUSE_TICKS + 40; t++) {
+      send(room, "u1", { t: "input", ...moves[Math.min(2, Math.floor(t / 20))], bomb: t === 25, action: false, pet: false });
+      if (t === 40) game.players[1].pet = { kind: "runner", cooldown: 0, dashTicks: 0 };
+      stepRoom(room);
+      const snap = JSON.parse(JSON.stringify(toSnapshot(game, false, sent)));
+      sent = lists();
+      expect(snap.players).toBeUndefined();
+      expect(snap.bombs).toBeUndefined();
+      known = fromSnapshot(snap, game.tiles, known)!;
+      expect(known.players).toEqual(game.players);
+      expect(known.bombs).toEqual(game.bombs);
+      bombsSeen = Math.max(bombsSeen, known.bombs.length);
+      if (t === 0) {
+        // the first step right: only what moved goes, nothing for those standing still
+        expect(Object.keys(snap.changes.players[0]).sort()).toEqual(["facing", "moving", "x"]);
+        expect(snap.changes.players.slice(1)).toEqual([null, null]);
+      }
+      if (t === 30) expect(snap.changes.bombs).toEqual([{ id: game.bombs[0].id, ticksLeft: game.bombs[0].ticksLeft }]);
+    }
+    expect(bombsSeen).toBe(1);
+    expect(game.bombs).toHaveLength(0); // and it went off
+  });
+
+  test("protocol 2: changes with nothing to apply them to rebuild nothing; a new line-up of players goes in full", () => {
+    const room = lobby(2);
+    start(room);
+    const game = room.game!;
+    const sent = structuredClone({ players: game.players, bombs: game.bombs });
+    expect(fromSnapshot(toSnapshot(game, false, sent), game.tiles, null)).toBeNull();
+    const regrouped = toSnapshot(game, false, { ...sent, players: sent.players.slice(1) });
+    expect([regrouped.players, regrouped.bombs, regrouped.changes]).toEqual([game.players, game.bombs, undefined]);
   });
 });
 
