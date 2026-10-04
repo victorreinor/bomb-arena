@@ -29,6 +29,9 @@ export function playSounds(events: GameEvent[], me?: string) {
       case "kick":
         audio.sfx("kick");
         break;
+      case "bounce":
+        audio.sfx("boing");
+        break;
       case "land":
         audio.sfx("land");
         break;

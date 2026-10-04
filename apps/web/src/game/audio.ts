@@ -27,7 +27,8 @@ export type SfxName =
   | "hurry"
   | "go"
   | "thud"
-  | "bonk";
+  | "bonk"
+  | "boing";
 import { readPref, writePref } from "../config";
 
 export type TrackName = "menu" | "battle" | "battle2" | "hurry";
@@ -444,6 +445,12 @@ class AudioEngine {
         this.noiseHit(t, 0.05, 1200, 0.7, bus, "bandpass", 600);
         this.slide("square", 520, 180, t, 0.12, 0.45, bus);
         [1568, 1319, 1568, 1319].forEach((f, i) => this.tone("triangle", f, t + 0.12 + i * 0.07, 0.06, 0.25, bus));
+        break;
+      case "boing":
+        // a rubber bomb bouncing off a wall: a rubbery wobble that springs back up
+        this.slide("sine", 180, 520, t, 0.16, 0.6, bus);
+        this.slide("triangle", 540, 260, t + 0.08, 0.14, 0.3, bus);
+        this.noiseHit(t, 0.04, 900, 0.35, bus, "lowpass");
         break;
       case "haunt":
         // ghostly wobble: two slightly detuned voices gliding down

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { MAX_RANGE, step, type GameState } from "@bomberman/engine";
-import { corridor, makeGame, testFlame } from "../../../packages/engine/test/helpers";
+import { corridor, makeGame, testBomb, testFlame } from "../../../packages/engine/test/helpers";
 import { diffGame } from "../src/game/events";
 
 /** p1 one step short of an item at (3, 1), walking onto it over the next few ticks: the states before and after. */
@@ -46,5 +46,20 @@ describe("diffGame: items", () => {
     const { before, after } = walkOnto("bomb");
     after.players[0].x = 4.5;
     expect(diffGame(before, after).filter((e) => e.type === "pickup").map((e) => e.type === "pickup" && e.kind)).toEqual(["bomb"]);
+  });
+});
+
+describe("diffGame: new bombs", () => {
+  test("a rubber bomb bouncing off a wall makes a bounce, heading back", () => {
+    const s = makeGame(corridor("1...#.2"));
+    testBomb(s, 4, 1, { rubber: true, slide: "right", slideTimer: 1 }); // the wall is at 5
+    const before = structuredClone(s);
+    step(s);
+    expect(diffGame(before, s).filter((e) => e.type === "bounce")).toEqual([{ type: "bounce", x: 4, y: 1, dir: "left" }]);
+  });
+
+  test("picking up a mine is a pickup of a mine", () => {
+    const { before, after } = walkOnto("mine");
+    expect(diffGame(before, after).filter((e) => e.type === "pickup").map((e) => e.type === "pickup" && e.kind)).toEqual(["mine"]);
   });
 });

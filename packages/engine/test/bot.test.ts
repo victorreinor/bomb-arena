@@ -73,6 +73,14 @@ describe("bot", () => {
     expect(s.tiles[1 * s.width + 2]).toBe(TILE.EMPTY);
   });
 
+  test("with remote bombs it gets clear of its own and sets it off, instead of waiting out the long fuse", () => {
+    const s = makeGame(corridor("1.....+....2"));
+    s.players[0].remote = true;
+    play(s, ["p1"], 120); // the safety fuse alone takes 300
+    expect(s.players[0].alive).toBe(true);
+    expect(s.tiles[1 * s.width + 7]).toBe(TILE.EMPTY);
+  });
+
   test("on a real map it clears bricks for a while without blowing itself up", () => {
     const s = createGame({ map: CLASSIC, seed: 11, players: [{ id: "bot", color: 0 }, { id: "idle", color: 1 }] });
     const bricksBefore = s.tiles.filter((t) => t === TILE.SOFT).length;

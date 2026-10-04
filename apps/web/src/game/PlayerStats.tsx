@@ -27,6 +27,11 @@ export function PlayerStats({ p }: { p: Player }) {
           <ItemIcon kind="line" size={18} />×{p.lineCharges}
         </span>
       )}
+      {p.mineCharges > 0 && (
+        <span className="line-charges">
+          <ItemIcon kind="mine" size={18} />×{p.mineCharges}
+        </span>
+      )}
       {p.disease && (
         <span className="curse" title={`Maldição: ${DISEASE_NAME[p.disease.kind]}`}>
           ☠ <span className="desktop-only">{DISEASE_NAME[p.disease.kind]}</span>

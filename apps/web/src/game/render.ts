@@ -1,11 +1,11 @@
-import { FLAME_TICKS, TICK_RATE, TILE, countingDown, tileAt, wrap, type Bomb, type GameState, type Player } from "@bomberman/engine";
+import { FLAME_TICKS, MINE_ARM_TICKS, MINE_FUSE_TICKS, TICK_RATE, TILE, countingDown, isBuried, tileAt, wrap, type Bomb, type GameState, type Player } from "@bomberman/engine";
 import { ACCENT, ACCENT_INK } from "./colors";
 import type { AmbientSource, Effects } from "./effects";
 import type { ActionPose } from "./events";
 import { drawFlames } from "./fire";
 import { ITEM_COL } from "./items";
 import { mapInfo } from "./mapInfo";
-import { ANCHOR, TILE_PX, drawBomber, drawMount, drawTile, tileName, type BomberFrame, type Sprites } from "./sprites";
+import { ANCHOR, BOMB_LOOKS, TILE_PX, bombLook, drawBomber, drawMount, drawTile, tileName, type BomberFrame, type Sprites } from "./sprites";
 
 export const SCALE = 3;
 
@@ -28,6 +28,20 @@ const PULSE = [0, 1, 2, 1];
 function bombFrame(b: Bomb, timeMs: number) {
   const period = b.ticksLeft > TICK_RATE ? 150 : b.ticksLeft > TICK_RATE / 2 ? 85 : 45;
   return PULSE[Math.floor(timeMs / period) % PULSE.length];
+}
+
+/** how see-through a buried mine is drawn for its owner (nobody else sees it at all) */
+const BURIED_ALPHA = 0.35;
+/** how far (sprite pixels) a mine sinks as it buries itself */
+const MINE_SINK = 3;
+
+/**
+ * How far a mine has gone into the ground, 0 (just laid) to 1 (buried); 0 for any other bomb.
+ * One being kicked, carried or thrown is above ground.
+ */
+function sunk(b: Bomb): number {
+  if (!b.mine || b.slide || b.flight || b.held) return 0;
+  return isBuried(b) ? 1 : Math.min(1, (MINE_FUSE_TICKS - b.ticksLeft) / MINE_ARM_TICKS);
 }
 
 /** Markers floating over a bomber (a curse, a name tag) bob together, this many sprite pixels at most. */
@@ -92,7 +106,8 @@ function boardImage(state: GameState, sprites: Sprites): HTMLCanvasElement {
 
 /**
  * Draws one frame. `state` is what to show (already interpolated by the caller, see lerpState). `tags` names
- * bombers to point out at the start ("VOCÊ", or J1/J2 when two share a screen).
+ * the bombers played on this screen ("VOCÊ", or J1/J2 when two share it): they are pointed out at the
+ * start, and only their buried mines are drawn.
  */
 export function render(
   ctx: CanvasRenderingContext2D,
@@ -138,6 +153,9 @@ export function render(
   };
 
   const drawBomb = (b: Bomb, px: number, py: number, z: number) => {
+    const row = BOMB_LOOKS.indexOf(bombLook(b)) * TILE_PX;
+    const frame = (dx: number, dy: number, size = TILE_PX) =>
+      ctx.drawImage(sprites.bomb, bombFrame(b, timeMs) * TILE_PX, row, TILE_PX, TILE_PX, Math.round(dx), Math.round(dy), size, size);
     if (z > 0) {
       ctx.fillStyle = "rgba(0,0,0,0.28)";
       ctx.beginPath();
@@ -150,9 +168,9 @@ export function render(
       ctx.beginPath();
       ctx.arc(px + 8, dy + 9, 11, 0, Math.PI * 2);
       ctx.fill();
-      ctx.drawImage(sprites.bomb, bombFrame(b, timeMs) * TILE_PX, 0, TILE_PX, TILE_PX, Math.round(px - 2), Math.round(dy - 3), 20, 20);
+      frame(px - 2, dy - 3, 20);
     } else {
-      cell(sprites.bomb, bombFrame(b, timeMs), Math.round(px), Math.round(dy));
+      frame(px, dy);
     }
     if (b.remote) {
       ctx.fillStyle = Math.floor(timeMs / 220) % 2 === 0 ? "#ff3b30" : "#ffd2cf";
@@ -167,8 +185,16 @@ export function render(
       carried.push(b);
       continue;
     }
+    // a mine sinks out of sight as it buries itself; its owner still makes it out, faintly
+    const sinking = sunk(b);
+    const alpha = b.owner in tags ? 1 - (1 - BURIED_ALPHA) * sinking : 1 - sinking;
+    if (alpha <= 0) continue;
     const spot = bombSpot(b);
-    drawBomb(b, spot.px, spot.py, spot.z);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    drawBomb(b, spot.px, spot.py + sinking * MINE_SINK, spot.z);
+    ctx.restore();
+    if (sinking === 1) continue; // no sparkle to give it away
     const cx = spot.px + 8;
     const cy = spot.py + 9 - spot.z;
     if (b.slide) ambient.push({ kind: "slide", x: cx, y: cy, dir: b.slide });

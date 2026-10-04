@@ -38,6 +38,9 @@ export const POWERUP_WEIGHTS = {
   line: 5,
   power: 4,
   egg: 6,
+  pierce: 3,
+  rubber: 3,
+  mine: 4,
 } as const satisfies Record<PowerUpKind, number>;
 
 /** a kicked bomb slides one tile every this many ticks (10 tiles/s) */
@@ -55,6 +58,10 @@ export const DISEASE_TICKS = 15 * TICK_RATE;
 /** with the "autoBomb" curse a bomb is dropped this often */
 export const AUTO_BOMB_INTERVAL_TICKS = 10;
 export const MAX_LINE_CHARGES = 3;
+export const MAX_MINE_CHARGES = 3;
+/** a mine lies in the open this long before it buries itself, and goes off on its own after MINE_FUSE_TICKS */
+export const MINE_ARM_TICKS = TICK_RATE;
+export const MINE_FUSE_TICKS = 10 * TICK_RATE;
 export const SLOW_FACTOR = 0.45;
 
 /** ticks before each pet's power can be used again */

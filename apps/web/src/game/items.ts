@@ -20,6 +20,13 @@ export const ITEM_INFO: Record<PowerUpKind, { name: string; desc: string; color:
   line: { name: "Bomba em linha", desc: "Uso único: sua próxima bomba coloca todas as bombas livres em fila à sua frente.", color: "#ff9a1e" },
   power: { name: "Bomba de poder", desc: "A primeira bomba de cada leva tem alcance máximo.", color: "#ff3b30" },
   egg: { name: "Ovo", desc: "Choca um pet aleatório para você montar. Montado, você deixa os próximos ovos no chão.", color: "#7ad68a" },
+  pierce: { name: "Bomba perfurante", desc: "Sua explosão atravessa os tijolos e quebra todos no caminho.", color: "#3fd0ff" },
+  rubber: { name: "Bomba de borracha", desc: "Chutada, sua bomba quica no que encontra e volta, em vez de parar (para em quem estiver no caminho).", color: "#ff5fa8" },
+  mine: {
+    name: "Mina",
+    desc: "Uso único (até 3): sua próxima bomba se enterra em 1 s, some para os outros e explode quando um adversário pisa nela (ou em 10 s).",
+    color: "#b6c46a",
+  },
 };
 
 /** The mounts: name, what their power (pet key) does, and their colour (row in pets.png = PET_KINDS). */

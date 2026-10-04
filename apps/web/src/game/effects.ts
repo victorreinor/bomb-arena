@@ -166,6 +166,9 @@ export class Effects {
         case "kick":
           this.kick(e.x, e.y, e.dir);
           break;
+        case "bounce":
+          this.bounce(e.x, e.y, e.dir);
+          break;
         case "throw":
           this.thrown(e.x, e.y);
           break;
@@ -402,6 +405,15 @@ export class Effects {
     this.burst(cx - v.dx * 6, cy - v.dy * 6, 12, ["#ffffff", "#ffd23a", "#ff9a1e"], { speed: [30, 90], life: [0.2, 0.5], bias: { x: -v.dx * 40, y: -v.dy * 40 } });
     this.puffs(cx - v.dx * 7, cy - v.dy * 7 + 3, 5, "#8a8a99", 14, 8);
     this.jolt(1.4);
+  }
+
+  /** A rubber bomb springing back off the side it hit (the far side from where it now heads). */
+  private bounce(tx: number, ty: number, dir: Dir) {
+    const v = DIR_VEC[dir];
+    const cx = (tx + 0.5) * T - v.dx * 7;
+    const cy = (ty + 0.5) * T - v.dy * 7;
+    this.ring(cx, cy, 0.22, T * 0.9, ITEM_INFO.rubber.color);
+    this.burst(cx, cy, 8, ["#ffffff", ITEM_INFO.rubber.color], { speed: [25, 70], life: [0.15, 0.35], bias: { x: v.dx * 50, y: v.dy * 50 } });
   }
 
   private thrown(tx: number, ty: number) {

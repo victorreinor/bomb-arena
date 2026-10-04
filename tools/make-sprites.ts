@@ -13,7 +13,7 @@ import { POWERUP_KINDS, type PowerUpKind } from "../packages/engine/src";
 import { bomberSheet, emoteSheet } from "./bomber-art";
 import { petSheet } from "./pet-art";
 import { tileSheet } from "./tile-art";
-import { TILE_THEMES } from "../apps/web/src/game/sprites";
+import { BOMB_LOOKS, BOMB_PULSE_FRAMES, TILE_THEMES, type BombLook } from "../apps/web/src/game/sprites";
 import { Img, encodePng, fromAscii, hex, lighten, shade, upscale, type RGBA } from "./png";
 
 const OUT = join(import.meta.dir, "../apps/web/public/sprites");
@@ -32,28 +32,65 @@ for (const theme of TILE_THEMES) save(`tiles-${theme}.png`, tileSheet(theme));
 
 // ------------------------------------------------------------------- bomb
 
-function bombFrame(radius: number): Img {
+/** Body, rim and the dull side of the shine for each round bomb look. */
+const BOMB_COLORS: Record<Exclude<BombLook, "mine">, [body: string, rim: string, dim: string]> = {
+  plain: ["#1d1d2b", "#3a3a55", "#9a9ab8"],
+  pierce: ["#123352", "#3f86b8", "#8fd0ff"],
+  rubber: ["#a8245e", "#ff6fae", "#ffc2dc"],
+};
+
+/** The fuse burning down to a spark, top right of a round bomb. */
+function fuse(img: Img) {
+  img.rect(9, 3, 2, 2, hex("#8a5a2a"));
+  img.rect(10, 2, 1, 1, hex("#8a5a2a"));
+  img.rect(11, 0, 2, 2, hex("#ffd23a")); // spark
+  img.set(12, 1, hex("#ff7a1a"));
+  img.set(11, 2, hex("#ff7a1a"));
+}
+
+/**
+ * One pulse frame of a bomb: round ones of `radius` (the piercing one with a bright band and a spike
+ * each side, the rubber one pink), the mine a flat dome with a blinking button (`lit` on the big frame).
+ */
+function bombFrame(radius: number, look: BombLook = "plain"): Img {
   const img = new Img(T, T);
+  if (look === "mine") {
+    const [cx, cy, rx, ry] = [7.5, 11, radius + 1, radius * 0.55 + 0.5];
+    for (let y = 0; y < T; y++) {
+      for (let x = 0; x < T; x++) {
+        const d = Math.hypot((x - cx) / rx, (y - cy) / ry);
+        if (d <= 1 && y <= cy + 1) img.set(x, y, d > 0.8 || y > cy ? hex("#6a7840") : hex("#3c4426"));
+      }
+    }
+    img.rect(2, 12, 12, 1, hex("#2a2f1a")); // its rim on the ground
+    for (const x of [4, 7, 10]) img.set(x, 10, hex("#9aa86a")); // studs
+    const top = Math.floor(cy - ry) - 1; // the button sits on top of the dome
+    img.rect(7, top, 2, 2, radius === 7 ? hex("#ff8a8a") : hex("#e8404a"));
+    img.set(7, top, hex("#ffffff"));
+    return img;
+  }
+  const [body, rim, dim] = BOMB_COLORS[look].map((c) => hex(c));
   const cx = 7.5;
   const cy = 9;
   for (let y = 0; y < T; y++) {
     for (let x = 0; x < T; x++) {
       const d = Math.hypot(x - cx, y - cy);
-      if (d <= radius) img.set(x, y, d > radius - 1.2 ? hex("#3a3a55") : hex("#1d1d2b"));
+      if (d <= radius) img.set(x, y, d > radius - 1.2 ? rim : body);
     }
   }
+  if (look === "pierce") {
+    for (let x = Math.ceil(cx - radius); x <= cx + radius; x++) img.set(x, 10, hex("#8fe8ff"));
+    for (const x of [Math.round(cx - radius) - 1, Math.round(cx + radius)]) img.rect(x, 9, 1, 3, hex("#c8d4e0"));
+  }
   img.rect(5, 6, 2, 2, hex("#ffffff"));
-  img.rect(4, 7, 1, 1, hex("#9a9ab8"));
-  img.rect(9, 3, 2, 2, hex("#8a5a2a")); // fuse
-  img.rect(10, 2, 1, 1, hex("#8a5a2a"));
-  img.rect(11, 0, 2, 2, hex("#ffd23a")); // spark
-  img.set(12, 1, hex("#ff7a1a"));
-  img.set(11, 2, hex("#ff7a1a"));
+  img.rect(4, 7, 1, 1, dim);
+  fuse(img);
   return img;
 }
 
-const bomb = new Img(T * 3, T);
-[6, 7, 6].forEach((r, i) => bomb.blit(bombFrame(r), i * T, 0));
+const PULSE_RADII = [6, 7, 6];
+const bomb = new Img(T * BOMB_PULSE_FRAMES, T * BOMB_LOOKS.length);
+BOMB_LOOKS.forEach((look, row) => PULSE_RADII.forEach((r, i) => bomb.blit(bombFrame(r, look), i * T, row * T)));
 save("bomb.png", bomb);
 save("favicon.png", bombFrame(6));
 
@@ -132,6 +169,18 @@ const ICONS: Record<PowerUpKind, { bg: string; rows: string[] }> = {
     bg: "#a82a2a",
     rows: [".....Y..", "....N...", "..RRRR..", ".RRWRRR.", "RRWRRRRR", "RRRRRRRR", ".RRRRRR.", "..RRRR.."],
   },
+  pierce: {
+    bg: "#1f6f9a",
+    rows: ["NNNNNNNN", "NONNNONN", "YYYYYYW.", "YYYYYYYW", "YYYYYYW.", "NNNONNNO", "NNNNNNNN", "........"],
+  },
+  rubber: {
+    bg: "#7a2a5a",
+    rows: ["....Y...", "...N....", "..PPPP..", ".PPWPPP.", ".PPPPPP.", ".PPPPPP.", "..PPPP..", "L......L"],
+  },
+  mine: {
+    bg: "#4a5a2a",
+    rows: ["........", "........", "...RR...", "..KRWK..", ".KKKKKK.", "KGGGGGGK", "KKKKKKKK", "NNNNNNNN"],
+  },
 };
 const ICON_PALETTE: Record<string, RGBA> = {
   K: hex("#15151f"),
@@ -143,6 +192,7 @@ const ICON_PALETTE: Record<string, RGBA> = {
   L: hex("#8fd0ff"),
   G: hex("#9aa0b8"),
   N: hex("#8a5a2a"),
+  P: hex("#ff6fae"),
 };
 
 const powerups = new Img(T * POWERUP_KINDS.length, T);

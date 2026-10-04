@@ -15,6 +15,8 @@ export type GameEvent =
   | { type: "death"; id: string; x: number; y: number; color: number }
   | { type: "pickup"; id: string; x: number; y: number; kind: PowerUpKind }
   | { type: "kick"; x: number; y: number; dir: Dir }
+  /** a rubber bomb bounced off something and now slides `dir`-wards */
+  | { type: "bounce"; x: number; y: number; dir: Dir }
   | { type: "throw"; x: number; y: number }
   | { type: "land"; x: number; y: number; power: boolean }
   | { type: "lift"; x: number; y: number }
@@ -53,6 +55,7 @@ function pickedKind(before: Player, after: Player): PowerUpKind | null {
   if (after.range > before.range) return "fire";
   if (after.speedLevel > before.speedLevel) return "speed";
   if (after.lineCharges > before.lineCharges) return "line";
+  if (after.mineCharges > before.mineCharges) return "mine";
   for (const [kind, field] of Object.entries(ABILITY_FIELDS) as [AbilityKind, (typeof ABILITY_FIELDS)[AbilityKind]][]) {
     if (after[field] && !before[field]) return kind;
   }
@@ -114,6 +117,7 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
       const kicker = behind(b.x, b.y, b.slide);
       if (kicker) events.push({ type: "pose", id: kicker.id, pose: "kick" });
     }
+    if (b.slide && before.slide && b.slide !== before.slide) events.push({ type: "bounce", x: b.x, y: b.y, dir: b.slide });
     if (b.flight && !before.flight) {
       events.push({ type: "throw", x: b.x, y: b.y });
       const by = before.held ?? behind(b.x, b.y, b.flight.dir)?.id;

@@ -17,6 +17,7 @@ export function hudKey(game: GameState, resultsIn = -1): string {
       p.range,
       p.speedLevel,
       p.lineCharges,
+      p.mineCharges,
       p.pet?.kind,
       p.disease?.kind,
       ...Object.values(ABILITY_FIELDS).map((f) => p[f]),

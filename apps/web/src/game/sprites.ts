@@ -1,4 +1,4 @@
-import { PET_KINDS, PLAYER_COLORS, type Dir, type PetKind } from "@bomberman/engine";
+import { PET_KINDS, PLAYER_COLORS, type Bomb, type Dir, type PetKind } from "@bomberman/engine";
 
 /**
  * The layout of every sprite sheet lives here: the game reads it to draw, and the generator in tools/
@@ -109,6 +109,16 @@ export const ANCHOR = {
   mountLeft: PET_CELL / 2,
   mountTop: PET_CELL - 7,
 } as const;
+
+/**
+ * bomb.png: one row per look, BOMB_PULSE_FRAMES columns each (the bomb swelling as its fuse burns).
+ * A bomb with more than one wears the first that applies (see bombLook).
+ */
+export const BOMB_LOOKS = ["plain", "pierce", "rubber", "mine"] as const;
+export type BombLook = (typeof BOMB_LOOKS)[number];
+export const BOMB_PULSE_FRAMES = 3;
+export const bombLook = (b: Pick<Bomb, "mine" | "pierce" | "rubber">): BombLook =>
+  b.mine ? "mine" : b.pierce ? "pierce" : b.rubber ? "rubber" : "plain";
 
 /** Draws one bomber frame with its top-left at (dx, dy). */
 export function drawBomber(ctx: CanvasRenderingContext2D, sheet: CanvasImageSource, frame: BomberFrame, facing: Dir, dx: number, dy: number) {

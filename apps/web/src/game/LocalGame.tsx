@@ -68,6 +68,7 @@ const newGame = (bots: BotLevel | null): GameState => {
       Object.assign(p, {
         bombsMax: 4, range: 4, speedLevel: 2, kick: true, punch: true, glove: true, remote: false,
         bombPass: false, wallPass: false, powerBomb: false, vest: true, lineCharges: 2,
+        pierceBomb: true, rubberBomb: true, mineCharges: 2,
       });
       const wanted = params.get("pet") as PetKind | null;
       const kind = wanted && PET_KINDS.includes(wanted) ? wanted : PET_KINDS[i % PET_KINDS.length];

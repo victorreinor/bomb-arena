@@ -18,9 +18,12 @@ import {
   KICK_INTERVAL_TICKS,
   MAX_BOMBS,
   MAX_LINE_CHARGES,
+  MAX_MINE_CHARGES,
   MAX_RANGE,
   MAX_SPEED_LEVEL,
   MAX_STEP_TILES,
+  MINE_ARM_TICKS,
+  MINE_FUSE_TICKS,
   PET_COOLDOWN_TICKS,
   PET_KICK_INTERVAL_TICKS,
   PLAYER_RADIUS,
@@ -153,10 +156,13 @@ export function createGame(opts: CreateGameOptions): GameState {
       bombPass: false,
       wallPass: false,
       powerBomb: false,
+      pierceBomb: false,
+      rubberBomb: false,
       vest: false,
       invuln: 0,
       stunned: 0,
       lineCharges: 0,
+      mineCharges: 0,
       disease: null,
       holding: null,
       diedAt: null,
@@ -285,6 +291,7 @@ export function step(state: GameState, inputs: Inputs = {}): void {
   }
 
   updateBombs(state);
+  triggerMines(state);
   burnFlames(state);
   suddenDeath(state);
 
@@ -368,7 +375,7 @@ function suddenDeath(state: GameState) {
   const x = i % state.width;
   const y = Math.floor(i / state.width);
   state.tiles[i] = TILE.HARD;
-  const crushed = bombAt(state, x, y);
+  const crushed = groundBombAt(state, x, y);
   if (crushed) {
     const owner = state.players.find((p) => p.id === crushed.owner);
     if (owner) owner.bombsActive = Math.max(0, owner.bombsActive - 1);
@@ -417,6 +424,9 @@ function applyPowerUp(state: GameState, p: Player, kind: PowerUpKind) {
     case "line":
       p.lineCharges = Math.min(MAX_LINE_CHARGES, p.lineCharges + 1);
       break;
+    case "mine":
+      p.mineCharges = Math.min(MAX_MINE_CHARGES, p.mineCharges + 1);
+      break;
     case "egg":
       p.pet = { kind: pickRandom(state, PET_KINDS), cooldown: 0, dashTicks: 0 };
       break;
@@ -430,9 +440,19 @@ function applyPowerUp(state: GameState, p: Player, kind: PowerUpKind) {
 
 // ---------------------------------------------------------------- bombs
 
-/** A bomb that stands on a tile and blocks it (not one in the air or in someone's hands). */
-export function bombAt(state: GameState, x: number, y: number): Bomb | undefined {
+/** A mine that has gone underground: nobody but its owner sees it, anyone walks over it. */
+export const isBuried = (b: Bomb) =>
+  b.mine && !b.slide && !b.flight && !b.held && b.ticksLeft <= MINE_FUSE_TICKS - MINE_ARM_TICKS;
+
+/** A bomb lying on a tile, buried mines included (not one in the air or in someone's hands). */
+export function groundBombAt(state: GameState, x: number, y: number): Bomb | undefined {
   return state.bombs.find((b) => b.x === x && b.y === y && !b.flight && !b.held);
+}
+
+/** A bomb that stands on a tile and blocks it: on the ground and not buried. */
+export function bombAt(state: GameState, x: number, y: number): Bomb | undefined {
+  const bomb = groundBombAt(state, x, y);
+  return bomb && !isBuried(bomb) ? bomb : undefined;
 }
 
 function overlapsTile(px: number, py: number, tx: number, ty: number): boolean {
@@ -440,12 +460,14 @@ function overlapsTile(px: number, py: number, tx: number, ty: number): boolean {
   return Math.abs(px - (tx + 0.5)) < reach && Math.abs(py - (ty + 0.5)) < reach;
 }
 
-/** Whether a bomb may be laid on this tile: open floor, no bomb, no fire (a wall-passer standing in a brick can't). */
+/** Whether a bomb may be laid on this tile: open floor, no bomb (not even a buried mine), no fire (a wall-passer standing in a brick can't). */
 export function canPlaceAt(state: GameState, x: number, y: number): boolean {
-  return tileAt(state, x, y) === TILE.EMPTY && !bombAt(state, x, y) && !flameAt(state, x, y);
+  return tileAt(state, x, y) === TILE.EMPTY && !groundBombAt(state, x, y) && !flameAt(state, x, y);
 }
 
-function newBomb(state: GameState, p: Player, x: number, y: number, range: number, remote = p.remote): Bomb {
+/** A bomb as its owner's items make it; `plain` (a ghost's) leaves out remote, pierce and rubber. */
+function newBomb(state: GameState, p: Player, x: number, y: number, range: number, plain = false): Bomb {
+  const remote = !plain && p.remote;
   const bomb: Bomb = {
     id: state.nextBombId++,
     owner: p.id,
@@ -455,6 +477,9 @@ function newBomb(state: GameState, p: Player, x: number, y: number, range: numbe
     range,
     remote,
     power: false,
+    pierce: !plain && p.pierceBomb,
+    rubber: !plain && p.rubberBomb,
+    mine: false,
     slide: null,
     slideTimer: 0,
     slideInterval: KICK_INTERVAL_TICKS,
@@ -486,8 +511,11 @@ const baseRange = (p: Player) => (p.disease?.kind === "shortRange" ? 1 : p.range
 /** The first bomb of a batch from a power-bomb owner goes all the way (not under the short-range curse). */
 const isPowerBomb = (p: Player) => p.powerBomb && p.bombsActive === 0 && p.disease?.kind !== "shortRange";
 
-/** Cells (tile indices) a bomb at (x, y) would set on fire: stops at stone, at the first brick and at the first bomb. */
-export function blastCells(state: GameState, x: number, y: number, range: number): number[] {
+/**
+ * Cells (tile indices) a bomb at (x, y) would set on fire: stops at stone, at the first bomb and at the
+ * first brick (a piercing blast goes on through bricks).
+ */
+export function blastCells(state: GameState, x: number, y: number, range: number, pierce = false): number[] {
   const cells = [y * state.width + x];
   for (const d of BLAST_DIRS) {
     for (let i = 1; i <= range; i++) {
@@ -496,7 +524,7 @@ export function blastCells(state: GameState, x: number, y: number, range: number
       const tile = tileAt(state, cx, cy);
       if (tile === TILE.HARD) break;
       cells.push(cy * state.width + cx);
-      if (tile === TILE.SOFT || bombAt(state, cx, cy)) break;
+      if ((tile === TILE.SOFT && !pierce) || bombAt(state, cx, cy)) break;
     }
   }
   return cells;
@@ -527,6 +555,11 @@ function placeBomb(state: GameState, p: Player) {
   const power = isPowerBomb(p);
   const bomb = newBomb(state, p, tx, ty, bombRangeFor(p));
   bomb.power = power;
+  if (p.mineCharges > 0) {
+    // a mine goes off when stepped on (or after a long fuse), never by remote
+    p.mineCharges--;
+    Object.assign(bomb, { mine: true, remote: false, ticksLeft: MINE_FUSE_TICKS });
+  }
 }
 
 // ----------------------------------------------------- special abilities
@@ -572,7 +605,7 @@ function launchBomb(state: GameState, bomb: Bomb, dir: Dir, distance = THROW_DIS
   for (let k = distance; k < distance + state.width + state.height; k++) {
     const x = wrap(bomb.x + d.dx * k, state.width);
     const y = wrap(bomb.y + d.dy * k, state.height);
-    if ((x !== bomb.x || y !== bomb.y) && tileAt(state, x, y) === TILE.EMPTY && !bombAt(state, x, y)) {
+    if ((x !== bomb.x || y !== bomb.y) && tileAt(state, x, y) === TILE.EMPTY && !groundBombAt(state, x, y)) {
       bomb.slide = null;
       bomb.flight = { toX: x, toY: y, dir, ticks: 0, total: ticks };
       return true;
@@ -714,12 +747,15 @@ function updateBombs(state: GameState) {
       const d = DIR_VEC[b.slide];
       const nx = b.x + d.dx;
       const ny = b.y + d.dy;
-      const blocked =
-        tileAt(state, nx, ny) !== TILE.EMPTY ||
-        bombAt(state, nx, ny) !== undefined ||
-        state.players.some((p) => p.alive && overlapsTile(p.x, p.y, nx, ny));
-      if (blocked) {
-        b.slide = null;
+      const ahead = groundBombAt(state, nx, ny);
+      if (ahead && isBuried(ahead)) ahead.ticksLeft = 0; // ran into a mine and set it off
+      const person = state.players.some((p) => p.alive && overlapsTile(p.x, p.y, nx, ny));
+      if (person || !slidesInto(state, nx, ny)) {
+        // a rubber bomb bounces back off walls, bricks and bombs (stopping at people, or when boxed in)
+        const back = reverse(b.slide);
+        const bounces = b.rubber && !person && slidesInto(state, b.x - d.dx, b.y - d.dy);
+        b.slide = bounces ? back : null;
+        b.slideTimer = b.slideInterval;
       } else {
         b.x = nx;
         b.y = ny;
@@ -727,6 +763,20 @@ function updateBombs(state: GameState) {
         if (flameAt(state, nx, ny)) b.ticksLeft = 0;
       }
     }
+  }
+}
+
+/** Whether a sliding bomb can move on into (x, y): open floor without a bomb on it. */
+const slidesInto = (state: GameState, x: number, y: number) => tileAt(state, x, y) === TILE.EMPTY && !groundBombAt(state, x, y);
+
+const reverse = (d: Dir): Dir => dirFrom(-DIR_VEC[d].dx, -DIR_VEC[d].dy)!;
+
+/** An opponent stepping on a buried mine sets it off; its owner walks over it safely. */
+function triggerMines(state: GameState) {
+  for (const b of state.bombs) {
+    if (!isBuried(b)) continue;
+    const stepped = state.players.some((p) => p.alive && !p.jump && p.id !== b.owner && Math.floor(p.x) === b.x && Math.floor(p.y) === b.y);
+    if (stepped) b.ticksLeft = 0;
   }
 }
 
@@ -783,13 +833,13 @@ function explode(state: GameState, start: Bomb) {
         if (tile === TILE.HARD) break;
 
         const hit = state.bombs.find((o) => o.x === x && o.y === y && !o.flight && !exploded.has(o.id));
-        const stops = tile === TILE.SOFT || hit !== undefined;
+        const stops = (tile === TILE.SOFT && !bomb.pierce) || hit !== undefined;
         const last = stops || i === bomb.range;
         addFlame(state, x, y, d.back | (last ? 0 : d.arm), bomb.owner);
         if (i === 1) centerArms |= d.arm;
         if (tile === TILE.SOFT) {
           burnt.add(y * state.width + x);
-          break;
+          if (!bomb.pierce) break;
         }
         if (hit) {
           queue.push(hit);
@@ -873,7 +923,7 @@ function stepGhost(state: GameState, p: Player, input: Partial<Input> | undefine
   p.facing = tile.inward;
 
   if (input?.bomb && ghost.cooldown === 0 && p.bombsActive === 0) {
-    launchBomb(state, newBomb(state, p, tile.x, tile.y, GHOST_BOMB_RANGE, false), tile.inward);
+    launchBomb(state, newBomb(state, p, tile.x, tile.y, GHOST_BOMB_RANGE, true), tile.inward);
     ghost.cooldown = GHOST_THROW_COOLDOWN_TICKS;
   }
 }

@@ -1,17 +1,19 @@
 import { BOMB_FUSE_TICKS, TICK_RATE } from "./constants";
 import {
   blastCells,
+  bombAt,
   bombRangeFor,
   borderRing,
   canDropBomb,
   canPlaceAt,
+  isBuried,
   nearestBorderIndex,
   playerSpeed,
   solidFor,
   wrap,
 } from "./game";
 import { nextRandom, pickRandom } from "./rng";
-import { BLAST_DIRS, TILE, emptyInput, type Bomb, type GameState, type Input, type Player } from "./types";
+import { BLAST_DIRS, DIR_VEC, TILE, emptyInput, type Bomb, type GameState, type Input, type Player } from "./types";
 
 /**
  * A computer opponent. Each tick it looks at the board as it understands it and decides, in order:
@@ -59,7 +61,7 @@ const PROFILES: Record<BotLevel, Profile> = {
   hard: { reaction: 4, rethink: 4, hesitate: [0, 2], panic: 0, hunts: 1, itemReach: 8, margin: 2 },
 };
 
-/** remote bombs can go off whenever their owner likes: treat them as about to */
+/** someone else's remote bombs can go off whenever they like: treat them as about to */
 const REMOTE_DANGER_TICKS = 20;
 /** bombing spots checked for an escape route per tick, nearest first */
 const MAX_SPOT_CHECKS = 6;
@@ -77,9 +79,10 @@ const NEVER = Infinity;
 
 /**
  * Ticks until fire reaches each cell (NEVER when nothing threatens it), chain reactions included.
- * Only bombs `known` counts are taken into account.
+ * Only bombs `known` counts are taken into account. Remote bombs could go off any moment, except to their
+ * `owner`, who sets them off when it suits it.
  */
-export function dangerMap(state: GameState, known: (b: Bomb) => boolean = () => true): number[] {
+export function dangerMap(state: GameState, known: (b: Bomb) => boolean = () => true, owner: string | null = null): number[] {
   const danger = new Array<number>(state.width * state.height).fill(NEVER);
   for (const f of state.flames) danger[f.y * state.width + f.x] = 0;
 
@@ -87,8 +90,8 @@ export function dangerMap(state: GameState, known: (b: Bomb) => boolean = () => 
     .filter((b) => !b.flight && !b.held && known(b))
     .map((b) => ({
       cell: b.y * state.width + b.x,
-      time: b.remote ? Math.min(b.ticksLeft, REMOTE_DANGER_TICKS) : b.ticksLeft,
-      cells: blastCells(state, b.x, b.y, b.range),
+      time: b.remote && b.owner !== owner ? Math.min(b.ticksLeft, REMOTE_DANGER_TICKS) : b.ticksLeft,
+      cells: blastCells(state, b.x, b.y, b.range, b.pierce),
       settled: false,
     }));
   const bombIn = new Map(bombs.map((b, i) => [b.cell, i]));
@@ -181,9 +184,13 @@ function brainFor(state: GameState, id: string, level: BotLevel): Brain {
 const between = (brain: Brain, [min, max]: readonly [number, number]) =>
   min + Math.floor(nextRandom(brain.rng) * (max - min + 1));
 
-/** The danger map as this bot sees it: its own bombs at once, anyone else's once it has noticed them. */
+/**
+ * The danger map as this bot sees it: its own bombs at once (its remote ones on their real fuse: it sets
+ * them off itself), anyone else's once it has noticed them, and nobody else's buried mines (no one sees those).
+ */
 function perceivedDanger(state: GameState, p: Player, brain: Brain): number[] {
-  let unnoticed = false;
+  const hidden = (b: Bomb) => isBuried(b) && b.owner !== p.id;
+  let blind = state.bombs.some((b) => hidden(b) || (b.remote && b.owner === p.id));
   for (const b of state.bombs) {
     let at = brain.noticeAt.get(b.id);
     if (at === undefined) {
@@ -191,16 +198,16 @@ function perceivedDanger(state: GameState, p: Player, brain: Brain): number[] {
       at = state.tick + delay;
       brain.noticeAt.set(b.id, at);
     }
-    if (at > state.tick) unnoticed = true;
+    if (at > state.tick) blind = true;
   }
-  return unnoticed ? dangerMap(state, (b) => brain.noticeAt.get(b.id)! <= state.tick) : dangerFor(state);
+  return blind ? dangerMap(state, (b) => !hidden(b) && brain.noticeAt.get(b.id)! <= state.tick, p.id) : dangerFor(state);
 }
 
 /** Where to run after dropping a bomb on `cell` (no blast reaches yet): the nearest cell every blast spares. */
 function escapeFrom(state: GameState, p: Player, danger: number[], cell: number, margin: number): Visit | undefined {
   // the new bomb's fuse is the longest there is, so it can't set any other off sooner: overlaying its cells is exact
   const withBomb = danger.slice();
-  for (const c of blastCells(state, cell % state.width, Math.floor(cell / state.width), bombRangeFor(p))) {
+  for (const c of blastCells(state, cell % state.width, Math.floor(cell / state.width), bombRangeFor(p), p.pierceBomb)) {
     withBomb[c] = Math.min(withBomb[c], BOMB_FUSE_TICKS);
   }
   return explore(state, p, withBomb, cell, margin).find((v) => v.dist > 0 && withBomb[v.cell] === NEVER);
@@ -252,7 +259,7 @@ function bombValue(state: GameState, p: Player, cell: number, enemyCells: Readon
   const y = Math.floor(cell / state.width);
   if (!canPlaceAt(state, x, y)) return 0;
   let value = 0;
-  for (const c of blastCells(state, x, y, bombRangeFor(p))) {
+  for (const c of blastCells(state, x, y, bombRangeFor(p), p.pierceBomb)) {
     if (enemyCells.has(c)) value += 4;
     else if (state.tiles[c] === TILE.SOFT) value += 1;
   }
@@ -319,6 +326,9 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
   }
   brain.fleeing = false;
 
+  // out of reach of its remote bombs: set them off
+  if (detonates(state, p)) return { ...emptyInput(), action: true };
+
   // 2. a good spot to bomb, with an escape route afterwards: make up its mind, settle in the middle, drop
   const canBomb = canDropBomb(p);
   const enemies = state.players.filter((o) => o.alive && o.id !== p.id);
@@ -348,6 +358,15 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
     brain.rethinkAt = state.tick + brain.profile.rethink;
   }
   return stepTowards(p, goal ? goal.first : here, width);
+}
+
+/** Whether the action button would now set off one of its remote bombs (rather than lift or punch a bomb at hand). */
+function detonates(state: GameState, p: Player): boolean {
+  if (!p.remote || p.holding !== null || !state.bombs.some((b) => b.owner === p.id && b.remote && !b.flight)) return false;
+  const tx = Math.floor(p.x);
+  const ty = Math.floor(p.y);
+  const d = DIR_VEC[p.facing];
+  return !(p.glove && bombAt(state, tx, ty)) && !(p.punch && bombAt(state, tx + d.dx, ty + d.dy));
 }
 
 /** Somewhere worth going: an item close by, a brick to break, or else the nearest enemy (or a stroll). */

@@ -35,6 +35,9 @@ export const POWERUP_KINDS = [
   "line",
   "power",
   "egg",
+  "pierce",
+  "rubber",
+  "mine",
 ] as const;
 export type PowerUpKind = (typeof POWERUP_KINDS)[number];
 
@@ -90,6 +93,10 @@ export interface Player {
   bombPass: boolean;
   wallPass: boolean;
   powerBomb: boolean;
+  /** their blasts go through bricks */
+  pierceBomb: boolean;
+  /** their kicked bombs bounce back off walls instead of stopping */
+  rubberBomb: boolean;
   /** absorbs one hit */
   vest: boolean;
   /** ticks of invulnerability left (after the vest breaks) */
@@ -98,6 +105,8 @@ export interface Player {
   stunned: number;
   /** pending one-shot line bombs */
   lineCharges: number;
+  /** pending one-shot mines: the next bombs laid bury themselves */
+  mineCharges: number;
   disease: { kind: DiseaseKind; ticksLeft: number } | null;
   /** id of the bomb being carried (glove) */
   holding: number | null;
@@ -125,6 +134,8 @@ export const ABILITY_FIELDS = {
   wallPass: "wallPass",
   vest: "vest",
   power: "powerBomb",
+  pierce: "pierceBomb",
+  rubber: "rubberBomb",
 } as const satisfies Partial<Record<PowerUpKind, keyof Player>>;
 export type AbilityKind = keyof typeof ABILITY_FIELDS;
 
@@ -141,6 +152,12 @@ export interface Bomb {
   remote: boolean;
   /** placed by a power-bomb owner: maximum range */
   power: boolean;
+  /** its blast goes through bricks, breaking every one in reach */
+  pierce: boolean;
+  /** kicked, it bounces back off whatever stops it (but people) */
+  rubber: boolean;
+  /** buries itself after MINE_ARM_TICKS: unseen by others, walked over, set off by an opponent stepping on it */
+  mine: boolean;
   /** kicked and sliding in this direction, one tile every KICK_INTERVAL_TICKS */
   slide: Dir | null;
   slideTimer: number;
