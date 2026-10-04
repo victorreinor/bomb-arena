@@ -6,24 +6,26 @@ Legenda: `[x]` feito · `[ ]` pendente. Atualizar a cada entrega.
 Tamanho: P pequeno · M médio · G grande. 🖥️ = mexe na engine ou no protocolo: publicar o servidor antes do push.
 
 **Próxima rodada: sensação de jogo e celular**
-- [ ] Contagem "Pronto… Já!" de ~2 s no início da partida antes de liberar os controles (dá tempo de achar o boneco e de a predição alinhar o relógio antes do primeiro passo) — M 🖥️
-- [ ] Marcador do próprio boneco ("você"/setinha nos primeiros segundos) e número de cada jogador sobre o boneco (ajuda no celular e para daltônicos) — P
-- [ ] Bomba pulsando mais rápido conforme o pavio acaba (hoje pulsa sempre no mesmo ritmo) — P
+- [x] Contagem "PRONTO?… JÁ!" de 2 s no início da partida (online e local): ninguém anda, o relógio espera, e a predição já alinha o relógio nesse tempo; som de largada no "JÁ!"
+- [x] Marcador "VOCÊ" sobre o próprio boneco (J1/J2 no modo de dois no mesmo teclado) durante a contagem e 2 s depois; embaixo dos pés quando o boneco começa na fileira de cima
+- [x] Bomba pulsando mais rápido no último segundo e mais ainda no último meio segundo
 - [x] Partida no celular, em pé e deitado: em pé, jogadores numa linha só (seu card com contorno), tabuleiro de borda a borda e controles embaixo; deitado, jogadores e direcional à esquerda, tabuleiro com a altura toda, relógio e botões à direita. O tabuleiro sempre pega o maior tamanho que cabe. Som, ajustes e "Sair" num menu ⚙️ durante a partida (os botões flutuantes cobriam o relógio e o Sair). Treino contra bots ganhou botão de sair
 - [x] Botão "⟳ Deitar" / "⛶ Tela cheia" na partida: tela cheia e trava na horizontal mesmo com a rotação automática desligada (Android)
 - [x] "Deitar" no iPhone, que não deixa travar a tela: o jogo gira dentro da página (funciona com o bloqueio de rotação ligado; "⟲ Em pé" volta). Uma dica única ensina a segurar e a instalar na tela inicial para tirar as barras do Safari
 - [x] Tela parada durante a partida: sem rolar, sem zoom (pinça ou toque duplo), sem "puxar para recarregar", sem seleção de texto ou lupa ao segurar os botões no iPhone. Fora da partida: toque duplo não dá zoom, campos com 16 px (o iPhone dava zoom ao digitar) e o texto não aumenta sozinho deitado
 - [x] Instalar na tela inicial (PWA: manifesto, ícones gerados pelo `bun run sprites`): abre em tela cheia, como um app. Sem service worker por enquanto (nada fica em cache, então nunca roda versão velha)
-- [ ] Conferir: trocar de aba ou de app segurando uma direção talvez deixe o boneco andando no servidor (o teclado zera no `blur`, mas o loop para com a aba escondida e o comando "parado" pode não sair); se confirmar, mandar o comando parado ao esconder a aba — P
-- [ ] Indicador de conexão no HUD (ping; amarelo/vermelho quando piora), para saber se uma travada é a rede — P
+- [x] Confirmado e corrigido: trocar de aba ou de app segurando uma direção deixava o boneco andando no servidor (os quadros param com a aba escondida e o comando "parado" não saía). Agora sai na hora em que a aba some
+- [x] Indicador de conexão (📶 ms, verde/amarelo/vermelho) na partida e no lobby, medido por ping a cada 2 s
 
 **Depois: social**
-- [ ] Quem matou quem: "fulano explodiu beltrano" e estatísticas no pódio (abates, itens pegos). Fazer junto com o item da dívida técnica "a engine registrar quem fez cada ação" — M 🖥️
-- [ ] Anfitrião remover uma pessoa da sala (hoje só remove bots; com o link circulando pode entrar alguém indesejado) — P 🖥️
+- [x] Quem explodiu quem no pódio: "Ana explodiu Bia · Caio se explodiu · Dani foi esmagado" e 💥 com o número de abates de cada um (a chama guarda de quem é a bomba)
+- [ ] Mais estatísticas no pódio (itens pegos, bombas plantadas) — P 🖥️
+- [x] Anfitrião tira uma pessoa da sala no lobby (✕ ao lado do nome); ela volta ao início com o aviso. Pode voltar pelo código (não há banimento)
 - [ ] Emotes rápidos: 4 reações fixas (😂 😡 👍 GG) num balão sobre o boneco, sem chat livre (nada a moderar) — M 🖥️
 - [ ] Replay do final: no pódio, rever os últimos ~5 s em câmera lenta, com os snapshots que o cliente já recebeu (sem mudar o servidor) — M
 
 **Depois: conteúdo**
+- [x] Mapas para 2 jogadores (x1): Duelo (11×9, apertado) e Confronto (13×11, meio-termo), com cenários reaproveitados; com mais de 2 na sala o mapa aparece com "só 2 jogadores" e a partida não começa
 - [ ] Batalha em duplas (2 contra 2, pessoas ou bots), com fogo amigo opcional — M 🖥️
 - [ ] Bombas novas, uma por vez pela receita de item: perfurante (atravessa vários tijolos), de borracha (quica nas paredes), mina (fica invisível) — P–M cada 🖥️
 - [ ] Começar a Fase 5 por um mapa só: esteiras (ou teletransportes), com cenário próprio — M–G 🖥️
@@ -90,7 +92,7 @@ Também na fila, já listados nas fases abaixo: bots usarem pets e itens especia
 - [ ] Uma só mensagem `settings` para as opções do lobby (hoje uma por opção) — fazer quando entrar a próxima opção
 - [ ] Modo local rodando pela lógica de sala (bots, série e nomes iguais ao online) — fazer se o modo local ganhar opções de sala
 - [ ] Separar no tipo os campos que o servidor não envia (`rng`, `nextBombId`). A predição já saiu e contorna isso recalculando `nextBombId` pelas bombas; fazer quando o protocolo mudar de novo
-- [ ] A engine registrar quem fez cada ação (chute, soco, arremesso, bomba plantada), por exemplo `Player.action = { kind, tick }`. Hoje o cliente deduz pela posição para escolher a pose do boneco; com o registro, a pose sai do estado e dá para creditar abates ("fulano explodiu beltrano"). Muda o protocolo: publicar o servidor junto
+- [ ] A engine registrar quem fez cada ação (chute, soco, arremesso, bomba plantada), por exemplo `Player.action = { kind, tick }`. Hoje o cliente deduz pela posição para escolher a pose do boneco; com o registro, a pose sai do estado. (Os abates já são creditados: cada chama guarda o dono da bomba.) Muda o protocolo: publicar o servidor junto
 - [ ] (opcional) Esconder `?itens=todos`, `?pet=`, `?vinganca=`, `?tempo=` em produção — só afetam o modo local
 - [ ] (descartado: ganho irrelevante) gravar volume só ao soltar o slider; contador de versão dos tiles no servidor
 

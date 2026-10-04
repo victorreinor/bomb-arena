@@ -28,7 +28,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 |---|---|
 | `types.ts` | `GameState`, `Player`, `Bomb`, `PowerUp`, `Input`; listas `POWERUP_KINDS`, `PET_KINDS`; `ABILITY_FIELDS` (item de habilidade → campo do jogador) |
 | `constants.ts` | Todos os números ajustáveis: `TICK_RATE` 30, pavio, alcance, velocidades, pesos de drop, recargas dos pets |
-| `maps.ts` | Mapas em ASCII (`#` pedra, `+` tijolo, `o` tijolo sorteado por `softDensity`, `.` livre, dígitos = início), `MAPS`, `MAP_IDS`, `SPAWN_ORDER` |
+| `maps.ts` | Mapas em ASCII de qualquer tamanho (`#` pedra, `+` tijolo, `o` tijolo sorteado por `softDensity`, `.` livre, dígitos = início; as vagas são os inícios, `mapSeats`), `MAPS`, `MAP_IDS`, `SPAWN_ORDER` |
 | `game.ts` | `createGame`, `step` (um tick), `stepPlayer`, `pickUp`, bombas, explosões, chute/soco/luva, quique na cabeça, pets, vingança, sudden death, ranking |
 | `room.ts` | Sala: membros, anfitrião, cor, pronto, vagas, bots, opções, série/placar, reconexão (10 s), `handleClientMessage`, `stepRoom`, `inputAcks`, `roomView` |
 | `protocol.ts` | Mensagens `ClientMsg`/`ServerMsg`, `RoomView`, `toSnapshot`/`fromSnapshot`, códigos de sala |
@@ -38,10 +38,11 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 ### Um tick (`step`)
 
+0. Durante a contagem "Pronto… Já!" (`tick <= goTick`), o passo para aqui: ninguém anda e o relógio espera.
 1. Cada jogador vivo roda `stepPlayer`: timers (invulnerabilidade, maldição, recarga do pet); se está no ar (salto) ou tonto, para aí; depois os botões (ação, bomba, pet) e o movimento (com deslize nas quinas). Fantasmas andam pela borda (`stepGhost`).
 2. Bombas andam (chutadas, voando, quicando), as chamas queimam, o sudden death derruba blocos.
 3. Pavios descontam; as bombas que zeram explodem em cadeia.
-4. Para quem está no chão: fogo na casa tira o pet, depois o colete, senão elimina; em seguida `pickUp` pega o item da casa.
+4. Para quem está no chão: fogo na casa tira o pet, depois o colete, senão elimina (com o crédito para o dono da chama, `Player.death`); em seguida `pickUp` pega o item da casa.
 5. A caveira passa por contato; com um vivo ou nenhum, a partida termina.
 
 `stepPlayer` e `pickUp` são exportadas porque o cliente as usa para prever o próprio boneco. Qualquer mudança nelas vale para os dois lados automaticamente.
@@ -55,7 +56,8 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 - `index.ts`: o Worker. Aceita só `/ws/<CÓDIGO>?pid=&name=&create=1&max=`, limita conexões por IP (por instância) e encaminha ao Durable Object do código.
 - `room.ts`: a classe `Room`. Usa WebSockets simples (sem hibernação, porque o loop precisa ficar vivo) e um loop de passo fixo de 33 ms que recupera até 5 ticks atrasados. Por conexão, aplica limite de 40 msg/s com rajada de 80 e mensagens de no máximo 512 bytes. O que transmite:
   - `room` (`RoomView`) quando algo visível do lobby muda;
-  - `state` a cada tick com partida: o snapshot sem `rng`/`nextBombId`, `tiles` só quando o tabuleiro muda ou alguém chega, `acks` só dos jogadores cujo comando mudou e, durante o pódio, 1 por segundo.
+  - `state` a cada tick com partida: o snapshot sem `rng`/`nextBombId` e sem o dono de cada chama, `tiles` só quando o tabuleiro muda ou alguém chega, `acks` só dos jogadores cujo comando mudou e, durante o pódio, 1 por segundo.
+- Responde `ping` com `pong` na hora, sem passar pela engine (o cliente mede a ida e volta). Quem deixa de ser membro com a conexão aberta (tirado pelo anfitrião) recebe o erro `removed` antes de ser desligado.
 - `wrangler.toml`: binding `ROOM` e migração SQLite (a única opção de DO no plano grátis).
 
 ## apps/web
@@ -117,7 +119,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 3. `bun run sprites`, testes em `packages/engine/test/`, publicar o servidor (as regras mudaram).
 
 **Novo mapa**
-1. `MapDef` em `packages/engine/src/maps.ts`, entrada em `MAPS` e `MAP_IDS`. O teste de mapas confere formato, 4 inícios e que o mapa é todo conectado.
+1. `MapDef` em `packages/engine/src/maps.ts` (o `build` faz a borda, os pilares e os bolsões de início, em qualquer tamanho e com os cantos de início que você escolher), entrada em `MAPS` e `MAP_IDS`. Os testes conferem a borda, os inícios nos cantos e que o mapa é todo conectado; o número de inícios é o de vagas.
 2. `MAP_INFO` em `apps/web/src/game/mapInfo.ts` (nível, descrição, música, cenário). Publicar o servidor.
 
 **Novo cenário**: `TILE_THEMES` e `THEME_COLORS` em `apps/web/src/game/sprites.ts`, um `TileSet` em `tools/tile-art.ts`, `bun run sprites`.
