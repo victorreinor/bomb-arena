@@ -1,0 +1,23 @@
+# Decisões
+
+- **Servidor de partida: Cloudflare Durable Objects**, front na Vercel. Supabase Realtime free (2M msgs/mês, 100 msg/s) se esgota em poucas horas de jogo com estado a 20 Hz+, e sem servidor o host precisa rodar a simulação (sala morre se ele sair). DO free: 100k requests/dia, mensagens de entrada 20:1, saída grátis. Limites verificados em 2026; reconferir antes do deploy.
+- **Supabase** fora do MVP; entra para contas/ranking (Fase 6).
+- **Engine pura e determinística** (`packages/engine`) compartilhada por servidor (autoritativa) e cliente (predição). Tick de 30 Hz. Estado serializável em JSON; RNG mulberry32 dentro do estado.
+- **Testes com `bun test`** (em vez de Vitest) — a engine é TS puro, sem DOM.
+- **Arte original** gerada por script (`tools/make-sprites.ts`), células de 16x16; qualquer PNG pode ser trocado por arte desenhada à mão sem mudar código. Sem sprites Hudson/Konami e sem usar "Bomberman" no nome público (risco de takedown). Nome provisório: "Bomb Arena".
+- **Chamas** desenhadas proceduralmente no canvas (máscara de braços por tile), não por sprite.
+- **Controle**: cliente envia só inputs (direção + bomba por borda); a direção mais recente vence, como num d-pad.
+- **WebSockets simples (sem hibernation)** no Durable Object: o loop de 30 Hz precisa ficar vivo e o estado da sala é só em memória; a sala morre quando fica vazia. Consumo no free tier: ~128 MB × tempo conectado (limite ≈ 28 h/dia de salas abertas).
+- **Código da sala = nome do Durable Object**; criar com `create=1` (idempotente para o mesmo jogador). Alfabeto sem vogais, 5 letras.
+- **Lógica de sala pura** em `packages/engine/src/room.ts` (testável sem rede); o Durable Object só liga sockets ↔ funções.
+- **Snapshots completos a 30 Hz** (~1–2 KB). Saída é grátis na Cloudflare; se o tamanho virar problema, enviar tiles só quando mudarem.
+- **Id do jogador por aba** (`sessionStorage`): refresh mantém a vaga, duas abas = dois jogadores.
+- **Áudio por síntese Web Audio**: sem arquivos nem licenças; duas músicas originais: lobby/menu em Dó maior, 104 bpm, leve e saltitante (C-Am-F-G); batalha em Ré menor, 176 bpm, sombria (baixo serrilhado filtrado, leads de onda quadrada desafinados, trítonos, bumbo em toda batida, rulo de caixa antes de repetir). `audio.renderTrack()` renderiza uma faixa offline para inspeção sem alto-falante.
+- **Vagas da sala (2–4)**: definidas na criação (`?max=`), valem também para quem só assiste; a partida inicia manualmente pelo anfitrião quando todos estão prontos (não há início automático ao lotar a sala).
+- **Explosão com saturação**: o som da explosão passa por um soft clipper (tanh) e abaixa a música por ~0,7 s; ~3x mais forte (rms) e ~2x mais longa que a versão inicial, sem passar de 0,9 de pico. Um limitador no master foi testado e descartado (atenuava os outros efeitos). `audio.renderSfx()` renderiza efeitos offline para medir níveis.
+- **Eventos de jogo** (`game/events.ts`): a diferença entre dois estados vira eventos (bomba, explosão, morte, power-up, fim) que alimentam som (`sfx.ts`) e efeitos visuais (`effects.ts`). Online, os eventos saem de `SnapshotBuffer.takePlayed()`, ou seja, seguem o relógio de reprodução e batem com a imagem. Os efeitos são só visuais e a engine nunca os lê.
+- **Estrondo**: explosão = estalo + corpo de ruído de 1,5 s + grave + trovão secundário + estalos de destroços + reverb sintético, tudo por saturação (tanh) e um limitador suave no master, transparente em volumes baixos (teste: efeitos pequenos mantêm o mesmo nível). Morte tem som próprio.
+- **Itens avançados**: botão Ação (Shift) contextual — arremessar > pegar (luva) > socar > detonar (remota). Bomba em linha é de uso único (cargas acumulam até 3) para não tirar a bomba simples; bomba de poder é permanente (1ª bomba da leva). Caveira contagia por contato (<0,8 casa). Bombas chutadas/arremessadas usam estado discreto na engine e o cliente interpola entre snapshots.
+- **Ranking** (`computeRanking`): vitória > quem durou mais; mortes no mesmo tick empatam (1,1,3...). A tela de resultado dura 10 s para o pódio.
+- **Efeitos**: eventos de jogo → `Effects` (partículas por evento + partículas contínuas "ambient" para itens em movimento).
+- **Fontes únicas** (limpeza): a ordem dos itens é `POWERUP_KINDS` na engine (sprites, ícones e cores derivam dela); `ABILITY_FIELDS` liga cada item de habilidade ao campo do jogador; a paleta de cores dos jogadores é `COLOR_CSS` (usada também pelo gerador de sprites); `SPAWN_ORDER` vale para qualquer partida (local também começa em cantos opostos); `lerpState` faz a interpolação no modo local e no online; o lobby usa o `canStart` da engine.
