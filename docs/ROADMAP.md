@@ -27,7 +27,7 @@ Tamanho: P pequeno · M médio · G grande. 🖥️ = mexe na engine ou no proto
 **Depois: conteúdo**
 - [x] Mapas para 2 jogadores (x1): Duelo (11×9, apertado) e Confronto (13×11, meio-termo), com cenários reaproveitados; com mais de 2 na sala o mapa aparece com "só 2 jogadores" e a partida não começa
 - [ ] Batalha em duplas (2 contra 2, pessoas ou bots), com fogo amigo opcional — M 🖥️
-- [ ] Bombas novas, uma por vez pela receita de item: perfurante (atravessa vários tijolos), de borracha (quica nas paredes), mina (fica invisível) — P–M cada 🖥️
+- [x] Bombas novas, como itens: **perfurante** (permanente; a explosão atravessa os tijolos e quebra todos no alcance), **de borracha** (permanente; chutada, quica no que encontra e volta, com som e efeito próprios; para em quem estiver no caminho) e **mina** (uso único, até 3; a próxima bomba se enterra em 1 s, some para os outros, não bloqueia a passagem e explode quando um adversário pisa nela ou em 10 s; o dono a vê clarinha). Cada uma com aparência própria no `bomb.png`, ícone, legenda e testes; os bots enxergam a explosão perfurante e não veem as minas enterradas dos outros
 - [ ] Começar a Fase 5 por um mapa só: esteiras (ou teletransportes), com cenário próprio — M–G 🖥️
 - [ ] Monstros na arena, como os bichos e tanques dos mapas dos Super Bomberman do SNES: uns só atrapalham, outros soltam fogo. Opção da sala (sem / poucos / muitos) e, depois, mapas com monstros próprios. Começar por um tipo só; os tipos estão na seção "Monstros" mais abaixo — M–G 🖥️
 
@@ -85,6 +85,7 @@ Também na fila, já listados nas fases abaixo: bots usarem pets e itens especia
 - [x] Botão de ação (Shift) não chegava ao servidor no modo online (soco, luva, arremesso e remota só funcionavam no modo local). Mensagens do cliente agora são tratadas na engine (`handleClientMessage`), com testes.
 - [x] O boneco dava um "pulo" no primeiro passo da partida: agora o relógio se alinha com o servidor antes de você se mexer, e a predição começa de onde o boneco estava desenhado
 - [x] O item só sumia (com som e efeito) um tempo depois de você passar por cima: agora a predição pega o item no quadro em que o boneco entra na casa
+- [x] Bot com bomba remota ficava parado em cima dela até o pavio de segurança (10 s) acabar, e morria: ele tratava a própria remota como "pode explodir a qualquer momento" e não achava rota de fuga. Agora conta o pavio de verdade das próprias remotas e as detona quando está fora do alcance
 
 ## Documentação
 - [x] `CLAUDE.md` (guia para agentes de IA: comandos, regras, fluxo de trabalho, armadilhas), `AGENTS.md` apontando para ele e `docs/ARCHITECTURE.md` (como funciona por dentro e receitas)
@@ -150,5 +151,5 @@ Bichos controlados pelo jogo, com arte e nomes próprios (nada copiado do SNES).
 - [x] Bomba arremessada/socada que cai na cabeça de alguém (bot ou pessoa) quica para a casa seguinte, estilo SNES, e deixa a pessoa tonta por 1 s (gira, estrelinhas, som de "bonk"; quem carregava bomba na luva a deixa cair). Antes prendia o jogador dentro da bomba até explodir
 - [x] Bots com nível Fácil/Normal/Difícil: tempo para notar a bomba dos outros, de quanto em quanto tempo repensam o objetivo, hesitação antes de plantar, pânico momentâneo, margem de segurança ao fugir e vontade de caçar. O anfitrião escolhe ao adicionar e troca clicando no nível; "Treinar contra bots" também escolhe
 - [ ] Ajustar os números dos níveis jogando (estão em `PROFILES` em `packages/engine/src/bot.ts`)
-- [ ] Bots usarem pets e itens especiais (chutar, socar, remota)
+- [ ] Bots usarem pets e itens especiais (chutar, socar). A remota eles já usam: detonam quando estão fora do alcance
 - [ ] Replays (a engine é determinística: dá para gravar só seed + entradas)

@@ -29,7 +29,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 | `types.ts` | `GameState`, `Player`, `Bomb`, `PowerUp`, `Input`; listas `POWERUP_KINDS`, `PET_KINDS`; `ABILITY_FIELDS` (item de habilidade → campo do jogador) |
 | `constants.ts` | Todos os números ajustáveis: `TICK_RATE` 30, pavio, alcance, velocidades, pesos de drop, recargas dos pets |
 | `maps.ts` | Mapas em ASCII de qualquer tamanho (`#` pedra, `+` tijolo, `o` tijolo sorteado por `softDensity`, `.` livre, dígitos = início; as vagas são os inícios, `mapSeats`), `MAPS`, `MAP_IDS`, `SPAWN_ORDER` |
-| `game.ts` | `createGame`, `step` (um tick), `stepPlayer`, `pickUp`, bombas, explosões, chute/soco/luva, quique na cabeça, pets, vingança, sudden death, ranking |
+| `game.ts` | `createGame`, `step` (um tick), `stepPlayer`, `pickUp`, bombas (perfurante, de borracha, minas: `isBuried`, `bombAt` só vê as que bloqueiam, `groundBombAt` vê também as enterradas), explosões, chute/soco/luva, quique na cabeça, pets, vingança, sudden death, ranking |
 | `room.ts` | Sala: membros, anfitrião, cor, pronto, vagas, bots, opções, série/placar, reconexão (10 s), `handleClientMessage`, `stepRoom`, `inputAcks`, `roomView` |
 | `protocol.ts` | Mensagens `ClientMsg`/`ServerMsg`, `RoomView`, `toSnapshot`/`fromSnapshot` (com as mudanças do protocolo 2), `PROTOCOL_VERSION`, códigos de sala |
 | `bot.ts` | Mapa de perigo (`dangerMap`), decisão (`botInput`), níveis em `PROFILES` |
@@ -40,7 +40,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 0. Durante a contagem "Pronto… Já!" (`tick <= goTick`), o passo para aqui: ninguém anda e o relógio espera.
 1. Cada jogador vivo roda `stepPlayer`: timers (invulnerabilidade, maldição, recarga do pet); se está no ar (salto) ou tonto, para aí; depois os botões (ação, bomba, pet) e o movimento (com deslize nas quinas). Fantasmas andam pela borda (`stepGhost`).
-2. Bombas andam (chutadas, voando, quicando), as chamas queimam, o sudden death derruba blocos.
+2. Bombas andam (chutadas, voando, quicando; a de borracha volta quando bate), minas enterradas em que um adversário pisou (ou em que uma bomba chutada bateu) disparam, as chamas queimam, o sudden death derruba blocos.
 3. Pavios descontam; as bombas que zeram explodem em cadeia.
 4. Para quem está no chão: fogo na casa tira o pet, depois o colete, senão elimina (com o crédito para o dono da chama, `Player.death`); em seguida `pickUp` pega o item da casa.
 5. A caveira passa por contato; com um vivo ou nenhum, a partida termina.
@@ -104,7 +104,8 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 | `bomber-<cor>.png` | `bomber-art.ts` | 16x24, linhas `BOMBER_VIEWS`, colunas `BOMBER_FRAMES` |
 | `bomber-emotes-<cor>.png` | `bomber-art.ts` | `BOMBER_EMOTES` (pódio) |
 | `pets.png` | `pet-art.ts` | células 20x20, uma linha por `PET_KINDS`, colunas `petColumn` |
-| `powerups.png`, `bomb.png`, `favicon.png` | `make-sprites.ts` | 16x16, ordem de `POWERUP_KINDS` |
+| `powerups.png`, `favicon.png` | `make-sprites.ts` | 16x16, ordem de `POWERUP_KINDS` |
+| `bomb.png` | `make-sprites.ts` | 16x16, uma linha por `BOMB_LOOKS` (comum, perfurante, borracha, mina; `bombLook` escolhe), `BOMB_PULSE_FRAMES` colunas |
 | `icon-180/192/512.png` | `make-sprites.ts` | ícones do app instalado (iOS e `public/manifest.webmanifest`) |
 
 - O boneco é montado com carimbos ASCII (cabeça por direção, tronco, braços e pernas por pose), cada um com contorno próprio. Quadros virados para a esquerda são os da direita espelhados na hora de desenhar.
@@ -118,6 +119,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 1. `POWERUP_KINDS` em `packages/engine/src/types.ts` e peso em `POWERUP_WEIGHTS` (`constants.ts`). Se for uma habilidade liga/desliga, basta o campo no `Player` e a entrada em `ABILITY_FIELDS`; se não, o efeito vai em `applyPowerUp` (`game.ts`).
 2. `bun run typecheck` aponta o resto: `ITEM_INFO` (`apps/web/src/game/items.ts`) e `ICONS` (`tools/make-sprites.ts`).
 3. `bun run sprites`, testes em `packages/engine/test/`, publicar o servidor (as regras mudaram).
+4. Se for um tipo de bomba: a marca no `Bomb` (posta em `newBomb`), a aparência em `BOMB_LOOKS`/`bombLook` (`sprites.ts`) e o desenho em `bombFrame` (`make-sprites.ts`); o alcance que os bots esperam sai de `blastCells`.
 
 **Novo mapa**
 1. `MapDef` em `packages/engine/src/maps.ts` (o `build` faz a borda, os pilares e os bolsões de início, em qualquer tamanho e com os cantos de início que você escolher), entrada em `MAPS` e `MAP_IDS`. Os testes conferem a borda, os inícios nos cantos e que o mapa é todo conectado; o número de inícios é o de vagas.
