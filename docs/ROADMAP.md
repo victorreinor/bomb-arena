@@ -2,6 +2,42 @@
 
 Legenda: `[x]` feito · `[ ]` pendente. Atualizar a cada entrega.
 
+## Próximos passos (análise de 04/10/2026, em ordem de prioridade)
+Tamanho: P pequeno · M médio · G grande. 🖥️ = mexe na engine ou no protocolo: publicar o servidor antes do push.
+
+**Próxima rodada: sensação de jogo e celular**
+- [ ] Contagem "Pronto… Já!" de ~2 s no início da partida antes de liberar os controles (dá tempo de achar o boneco e de a predição alinhar o relógio antes do primeiro passo) — M 🖥️
+- [ ] Marcador do próprio boneco ("você"/setinha nos primeiros segundos) e número de cada jogador sobre o boneco (ajuda no celular e para daltônicos) — P
+- [ ] Bomba pulsando mais rápido conforme o pavio acaba (hoje pulsa sempre no mesmo ritmo) — P
+- [x] Partida no celular, em pé e deitado: em pé, jogadores numa linha só (seu card com contorno), tabuleiro de borda a borda e controles embaixo; deitado, jogadores e direcional à esquerda, tabuleiro com a altura toda, relógio e botões à direita. O tabuleiro sempre pega o maior tamanho que cabe. Som, ajustes e "Sair" num menu ⚙️ durante a partida (os botões flutuantes cobriam o relógio e o Sair). Treino contra bots ganhou botão de sair
+- [x] Botão "⟳ Deitar" / "⛶ Tela cheia" na partida: tela cheia e trava na horizontal mesmo com a rotação automática desligada (Android; o iPhone não permite, lá o layout acompanha o celular)
+- [x] Tela parada durante a partida: sem rolar, sem zoom (pinça ou toque duplo), sem "puxar para recarregar", sem seleção de texto ou lupa ao segurar os botões no iPhone. Fora da partida: toque duplo não dá zoom, campos com 16 px (o iPhone dava zoom ao digitar) e o texto não aumenta sozinho deitado
+- [x] Instalar na tela inicial (PWA: manifesto, ícones gerados pelo `bun run sprites`): abre em tela cheia, como um app. Sem service worker por enquanto (nada fica em cache, então nunca roda versão velha)
+- [ ] Conferir: trocar de aba ou de app segurando uma direção talvez deixe o boneco andando no servidor (o teclado zera no `blur`, mas o loop para com a aba escondida e o comando "parado" pode não sair); se confirmar, mandar o comando parado ao esconder a aba — P
+- [ ] Indicador de conexão no HUD (ping; amarelo/vermelho quando piora), para saber se uma travada é a rede — P
+
+**Depois: social**
+- [ ] Quem matou quem: "fulano explodiu beltrano" e estatísticas no pódio (abates, itens pegos). Fazer junto com o item da dívida técnica "a engine registrar quem fez cada ação" — M 🖥️
+- [ ] Anfitrião remover uma pessoa da sala (hoje só remove bots; com o link circulando pode entrar alguém indesejado) — P 🖥️
+- [ ] Emotes rápidos: 4 reações fixas (😂 😡 👍 GG) num balão sobre o boneco, sem chat livre (nada a moderar) — M 🖥️
+- [ ] Replay do final: no pódio, rever os últimos ~5 s em câmera lenta, com os snapshots que o cliente já recebeu (sem mudar o servidor) — M
+
+**Depois: conteúdo**
+- [ ] Batalha em duplas (2 contra 2, pessoas ou bots), com fogo amigo opcional — M 🖥️
+- [ ] Bombas novas, uma por vez pela receita de item: perfurante (atravessa vários tijolos), de borracha (quica nas paredes), mina (fica invisível) — P–M cada 🖥️
+- [ ] Começar a Fase 5 por um mapa só: esteiras (ou teletransportes), com cenário próprio — M–G 🖥️
+
+**Quando der: proteção**
+- [ ] Testes para `predict.ts` e `snapshots.ts` (o código mais delicado do cliente; roda com `bun test`, sem navegador) — P–M
+- [ ] CI no GitHub Actions: typecheck, testes e build a cada push, antes de a Vercel publicar — P
+- [ ] Aviso de erros em produção (Sentry ou similar, plano grátis; conferir limites antes) — P
+
+**Para depois, se fizer sentido**
+- [ ] Salas públicas / "partida rápida" (só vale com desconhecidos jogando; precisa de um diretório de salas, outro Durable Object) — G 🖥️
+- [ ] Escolher as teclas e mudar tamanho/posição dos botões de toque (modo canhoto) — P
+
+Também na fila, já listados nas fases abaixo: bots usarem pets e itens especiais (Fase 6), balancear drops e pets com playtests (Fases 3 e 4), contas/ranking com Supabase (Fase 6).
+
 ## Fase 1 — Núcleo local
 - [x] Engine determinística (`packages/engine`): grade 15x13, movimento com deslize em quinas, bombas, explosões em cadeia, blocos moles, flames com braços
 - [x] Power-ups básicos: bomba+, fogo+, velocidade

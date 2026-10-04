@@ -78,6 +78,7 @@ O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja 
 - O Durable Object é criado fora da América do Sul (a Cloudflare não os hospeda lá), então a ida e volta a partir do Brasil leva ~140 ms. Por isso existem a predição e a reserva adaptável. Não "conserte" isso trocando de região.
 - A memória dos bots fica num `WeakMap` cuja chave é o `GameState`, e o dado aleatório deles é próprio: as escolhas dos bots não podem consumir `state.rng`. Para comparar níveis, jogue contra os bots; bot contra bot engana.
 - O wrangler loga "Network connection lost" quando recusa uma entrada (sala inexistente ou cheia). É um problema conhecido e sem efeito para o jogador (está no ROADMAP).
+- Celular se confere emulando toque (`isMobile`/`hasTouch` no Puppeteer ou o modo dispositivo do DevTools): o layout do celular só liga com `pointer: coarse`, então uma janela estreita no computador não mostra ele. Teste em pé e deitado, e com a altura de um celular com a barra do navegador (~412x625).
 - Captura de tela reduzida engana em pixel art (cores e contornos somem). Confira em tamanho real antes de concluir que a arte está errada.
 - O teste que passa "à toa" já aconteceu: compare com o valor inicial, e não com zero (exemplo: `nextBombId`).
 
@@ -97,4 +98,5 @@ O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja 
 | Sons, músicas e vibração | `apps/web/src/game/audio.ts` (síntese), `sfx.ts`, `haptics.ts` |
 | Controles | `apps/web/src/game/input.ts` (teclado), `controls.ts` (gamepad, touch e combinação) |
 | Telas | `apps/web/src/screens/` (`Home`, `Lobby`, `MapPicker`, `OnlineGame`) |
+| Layout da partida (computador; celular em pé e deitado), menu ⚙️, tela cheia | `apps/web/src/game/GameFrame.tsx`, `screenMode.ts`, `styles.css` (seção "phones") |
 | Arte | `tools/bomber-art.ts`, `tools/pet-art.ts`, `tools/tile-art.ts`, `tools/make-sprites.ts` |

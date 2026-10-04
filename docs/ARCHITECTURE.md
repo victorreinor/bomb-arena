@@ -62,7 +62,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 ### Telas
 
-`App.tsx` alterna entre `Home` (criar sala, entrar por código ou link `?sala=`, treinar contra bots, jogo local), `Lobby` (jogadores, cor, bots, carrossel de mapas `MapPicker`, opções) e `OnlineGame`. `net/useRoom.ts` abre o WebSocket, reconecta com espera crescente e entrega `room`, o `SnapshotBuffer` e `send`. O id do jogador é por aba (`sessionStorage`).
+`App.tsx` alterna entre `Home` (criar sala, entrar por código ou link `?sala=`, treinar contra bots, jogo local), `Lobby` (jogadores, cor, bots, carrossel de mapas `MapPicker`, opções), `OnlineGame` e `LocalGame`. As duas telas de partida desenham dentro de `game/GameFrame.tsx`: no computador, título, jogadores, tabuleiro e dicas de teclas; no celular, uma tela inteira em pé ou deitada, com o tabuleiro no maior tamanho que cabe (`useFit`), os controles de toque, o botão de girar/tela cheia (`screenMode.ts`) e o menu ⚙️ com som, ajustes e "Sair". O layout em si (áreas da grade em pé e deitado) está em `styles.css`, seção "phones". `net/useRoom.ts` abre o WebSocket, reconecta com espera crescente e entrega `room`, o `SnapshotBuffer` e `send`. O id do jogador é por aba (`sessionStorage`).
 
 ### Um quadro da partida online (`OnlineGame.tsx`)
 
@@ -102,6 +102,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 | `bomber-emotes-<cor>.png` | `bomber-art.ts` | `BOMBER_EMOTES` (pódio) |
 | `pets.png` | `pet-art.ts` | células 20x20, uma linha por `PET_KINDS`, colunas `petColumn` |
 | `powerups.png`, `bomb.png`, `favicon.png` | `make-sprites.ts` | 16x16, ordem de `POWERUP_KINDS` |
+| `icon-180/192/512.png` | `make-sprites.ts` | ícones do app instalado (iOS e `public/manifest.webmanifest`) |
 
 - O boneco é montado com carimbos ASCII (cabeça por direção, tronco, braços e pernas por pose), cada um com contorno próprio. Quadros virados para a esquerda são os da direita espelhados na hora de desenhar.
 - Os pets são formas sombreadas em camadas; os cenários usam `THEME_COLORS` (também usadas nos destroços) e `nextRandom`, então o resultado é sempre igual.
