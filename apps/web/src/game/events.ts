@@ -1,4 +1,7 @@
-import { ABILITY_FIELDS, TILE, borderRing, fallOrder, type AbilityKind, type Dir, type GameState, type PetKind, type Player, type PowerUpKind } from "@bomberman/engine";
+import { ABILITY_FIELDS, DIR_VEC, TILE, borderRing, fallOrder, type AbilityKind, type Dir, type GameState, type PetKind, type Player, type PowerUpKind } from "@bomberman/engine";
+
+/** What a bomber is caught doing for a moment (the sprite strikes the pose) */
+export type ActionPose = "kick" | "punch" | "throw" | "place";
 
 export type GameEvent =
   | { type: "bombPlaced"; bombs: { x: number; y: number; power: boolean; remote: boolean }[] }
@@ -23,6 +26,7 @@ export type GameEvent =
   | { type: "petPower"; x: number; y: number; pet: PetKind; dir: Dir }
   | { type: "petLand"; x: number; y: number }
   | { type: "stun"; x: number; y: number }
+  | { type: "pose"; id: string; pose: ActionPose }
   | { type: "haunt"; x: number; y: number }
   | { type: "hurry" }
   | { type: "blockFall"; cells: { x: number; y: number }[] }
@@ -48,7 +52,14 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
   const placed = next.bombs.filter((b) => !prev.bombs.some((o) => o.id === b.id));
   if (placed.length > 0) {
     events.push({ type: "bombPlaced", bombs: placed.map((b) => ({ x: b.x, y: b.y, power: b.power, remote: b.remote })) });
+    // a ghost's bombs come from the wall: only the living crouch to lay one
+    for (const owner of new Set(placed.map((b) => b.owner))) {
+      if (next.players.some((p) => p.id === owner && p.alive)) events.push({ type: "pose", id: owner, pose: "place" });
+    }
   }
+  /** whoever stands on the tile just behind (x, y) going `dir`: the one who kicked or punched it */
+  const behind = (x: number, y: number, dir: Dir) =>
+    next.players.find((p) => p.alive && Math.floor(p.x) === x - DIR_VEC[dir].dx && Math.floor(p.y) === y - DIR_VEC[dir].dy);
   for (const u of next.powerUps) {
     if (!prev.powerUps.some((o) => o.x === u.x && o.y === u.y && o.kind === u.kind)) {
       events.push({ type: "itemDrop", x: u.x, y: u.y, kind: u.kind });
@@ -76,8 +87,16 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
   for (const b of next.bombs) {
     const before = prev.bombs.find((o) => o.id === b.id);
     if (!before) continue;
-    if (b.slide && !before.slide) events.push({ type: "kick", x: b.x, y: b.y, dir: b.slide });
-    if (b.flight && !before.flight) events.push({ type: "throw", x: b.x, y: b.y });
+    if (b.slide && !before.slide) {
+      events.push({ type: "kick", x: b.x, y: b.y, dir: b.slide });
+      const kicker = behind(b.x, b.y, b.slide);
+      if (kicker) events.push({ type: "pose", id: kicker.id, pose: "kick" });
+    }
+    if (b.flight && !before.flight) {
+      events.push({ type: "throw", x: b.x, y: b.y });
+      const by = before.held ?? behind(b.x, b.y, b.flight.dir)?.id;
+      if (by) events.push({ type: "pose", id: by, pose: before.held ? "throw" : "punch" });
+    }
     if (before.flight && !b.flight) events.push({ type: "land", x: b.x, y: b.y, power: b.power });
     if (b.held && !before.held) events.push({ type: "lift", x: b.x, y: b.y });
   }

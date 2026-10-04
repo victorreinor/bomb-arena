@@ -2,16 +2,19 @@
  * Generates the original pixel-art spritesheets used by the game into
  * apps/web/public/sprites. Run with `bun run sprites`.
  *
- * Every sheet is a grid of 16x16 cells, so any of these PNGs can be replaced by
- * hand-drawn art with the same layout without touching game code.
+ * Each sheet is a grid of equal cells (16x16 tiles and items, 16x24 bombers, 20x20 mounts; see the
+ * client's sprites.ts), so any of these PNGs can be replaced by hand-drawn art with the same layout
+ * without touching game code. The bomber and the mounts are drawn in bomber-art.ts and pet-art.ts.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { COLOR_CSS } from "../apps/web/src/game/colors";
-import { PET_INFO } from "../apps/web/src/game/items";
-import { PET_SHEET_COLS } from "../apps/web/src/game/sprites";
-import { PET_KINDS, POWERUP_KINDS, type PowerUpKind } from "../packages/engine/src";
-import { Img, encodePng, fromAscii, hex, type RGBA } from "./png";
+import { POWERUP_KINDS, type PowerUpKind } from "../packages/engine/src";
+import { bomberSheet, emoteSheet } from "./bomber-art";
+import { petSheet } from "./pet-art";
+import { tileSheet } from "./tile-art";
+import { TILE_THEMES } from "../apps/web/src/game/sprites";
+import { Img, encodePng, fromAscii, hex, lighten, shade, type RGBA } from "./png";
 
 const OUT = join(import.meta.dir, "../apps/web/public/sprites");
 mkdirSync(OUT, { recursive: true });
@@ -23,69 +26,9 @@ function save(name: string, img: Img) {
   console.log(`wrote ${name} (${img.w}x${img.h})`);
 }
 
-function shade(c: RGBA, f: number): RGBA {
-  const m = (v: number) => Math.max(0, Math.min(255, Math.round(v * f)));
-  return [m(c[0]), m(c[1]), m(c[2]), c[3]];
-}
-
-function lighten(c: RGBA, f: number): RGBA {
-  const m = (v: number) => Math.min(255, Math.round(v + (255 - v) * f));
-  return [m(c[0]), m(c[1]), m(c[2]), c[3]];
-}
-
 // ------------------------------------------------------------------ tiles
 
-function floorTile(shadow: boolean): Img {
-  const img = new Img(T, T);
-  const base = hex("#58b858");
-  const alt = hex("#4fae52");
-  img.rect(0, 0, T, T, base);
-  img.rect(0, 0, 8, 8, alt);
-  img.rect(8, 8, 8, 8, alt);
-  img.rect(3, 12, 1, 1, hex("#6cca6a"));
-  img.rect(11, 4, 1, 1, hex("#6cca6a"));
-  if (shadow) img.rect(0, 0, T, 5, hex("#2f8a45", 150));
-  return img;
-}
-
-function hardTile(): Img {
-  const img = new Img(T, T);
-  img.rect(0, 0, T, T, hex("#8a8fa8"));
-  img.rect(0, 0, T, 1, hex("#d3d7e6"));
-  img.rect(0, 0, 1, T, hex("#d3d7e6"));
-  img.rect(0, T - 1, T, 1, hex("#4a4f68"));
-  img.rect(T - 1, 0, 1, T, hex("#4a4f68"));
-  img.rect(3, 3, 10, 10, hex("#4a4f68"));
-  img.rect(4, 4, 9, 9, hex("#a4a9c2"));
-  img.rect(4, 4, 9, 1, hex("#c9cde0"));
-  img.rect(4, 4, 1, 9, hex("#c9cde0"));
-  img.rect(5, 5, 7, 7, hex("#9398b3"));
-  return img;
-}
-
-function softTile(): Img {
-  const img = new Img(T, T);
-  const brick = hex("#cf8340");
-  const mortar = hex("#6e401c");
-  img.rect(0, 0, T, T, brick);
-  for (let row = 0; row < 4; row++) {
-    const y = row * 4;
-    img.rect(0, y + 3, T, 1, mortar);
-    const off = row % 2 === 0 ? 0 : 4;
-    for (let x = off; x < T + 8; x += 8) img.rect(x, y, 1, 4, mortar);
-    for (let x = off; x < T; x += 8) img.rect(x + 1, y, 6, 1, lighten(brick, 0.25));
-  }
-  img.rect(0, 0, T, 1, lighten(brick, 0.3));
-  img.rect(0, T - 1, T, 1, mortar);
-  return img;
-}
-
-const tiles = new Img(T * 4, T);
-tiles.blit(floorTile(false), 0, 0);
-tiles.blit(floorTile(true), T, 0);
-tiles.blit(hardTile(), T * 2, 0);
-tiles.blit(softTile(), T * 3, 0);
-save("tiles.png", tiles);
+for (const theme of TILE_THEMES) save(`tiles-${theme}.png`, tileSheet(theme));
 
 // ------------------------------------------------------------------- bomb
 
@@ -200,181 +143,11 @@ save("powerups.png", powerups);
 
 // ----------------------------------------------------------------- bomber
 
-
-type Face = "down" | "up" | "left" | "right";
-const FACES: Record<Face, string[]> = {
-  down: ["SSSSSSSS", "SSKSSKSS", "SSKSSKSS", "SSSSSSSS"],
-  up: ["CCCCCCCC", "CCCCCCCC", "CCCCCCCC", "CCCCCCCC"],
-  left: ["SSSSSSCC", "SKSSKSCC", "SKSSKSCC", "SSSSSSCC"],
-  right: ["CCSSSSSS", "CCSKSSKS", "CCSKSSKS", "CCSSSSSS"],
-};
-
-const LEGS = [
-  ["...KBBKKKKBBK...", "...KKK....KKK..."], // idle
-  ["...KBBKKKKBBK...", "..KKKK....KKK..."], // walk A
-  ["...KBBKKKKBBK...", "...KKK....KKKK.."], // walk B
-];
-
-const BOMBER_PALETTE = {
-  K: hex("#15151f"),
-  S: hex("#ffe3c4"),
-  B: hex("#3a4a9a"),
-  R: hex("#ff5a7a"),
-  W: hex("#ffffff"),
-  T: hex("#7ad0ff"),
-};
-
-/** Same body for every pose; only the 8x4 face and the legs change. */
-function bomberFromFace(color: RGBA, faceRows: string[], legs: string[]): Img {
-  const head = faceRows.map((interior) => `..KC${interior}CK..`);
-  const rows = [
-    ".......RR.......",
-    "......RRRR......",
-    ".......KK.......",
-    "....KKKKKKKK....",
-    "...KCHHCCCCCK...",
-    "..KCCCCCCCCCCK..",
-    ...head,
-    "...KCCCCCCCCK...",
-    "....KKKKKKKK....",
-    "...KBBBBBBBBK...",
-    "..KBBBBBBBBBBK..",
-    ...legs,
-  ];
-  return fromAscii(rows, { ...BOMBER_PALETTE, C: color, H: lighten(color, 0.55) });
-}
-
-/**
- * Podium poses. happy: closed smiling eyes, arms (white gloves) up; sad: frown, tears,
- * arms hanging. Two frames of each so the CSS can bounce / sob.
- */
-function emoteFrame(color: RGBA, mood: "happy" | "sad", variant: 0 | 1): Img {
-  const happyFace = ["SSSSSSSS", "SKKSSKKS", "SSSSSSSS", "SKRRRRKS"];
-  const sadFace =
-    variant === 0
-      ? ["SSKSSKSS", "STKSSKTS", "SSSKKSSS", "STKSSKTS"]
-      : ["SSKSSKSS", "SSKSSKSS", "STSKKSTS", "SSKSSKSS"];
-  const body = bomberFromFace(color, mood === "happy" ? happyFace : sadFace, mood === "happy" && variant === 1 ? LEGS[1] : LEGS[0]);
-  const K = BOMBER_PALETTE.K;
-  const B = BOMBER_PALETTE.B;
-  const W = BOMBER_PALETTE.W;
-  const tear = BOMBER_PALETTE.T;
-
-  if (mood === "happy") {
-    for (const left of [true, false]) {
-      const x = left ? 0 : 14;
-      body.rect(x, 3, 2, 3, W); // glove
-      body.rect(x, 2, 2, 1, K);
-      body.rect(left ? 2 : 13, 3, 1, 2, K);
-      body.rect(left ? 1 : 14, 6, 1, 6, B); // raised sleeve
-      body.rect(left ? 0 : 15, 6, 1, 6, K);
-    }
-  } else {
-    for (const left of [true, false]) {
-      body.rect(left ? 1 : 14, 12, 1, 3, B); // arms hanging
-      body.rect(left ? 0 : 15, 12, 1, 3, K);
-      body.rect(left ? 0 : 14, 15, 2, 1, W);
-    }
-    const y = variant === 0 ? 10 : 12; // tears drip down past the chin
-    body.set(2, y, tear);
-    body.set(13, y, tear);
-  }
-
-  if (mood === "happy" && variant === 1) {
-    const jumped = new Img(T, T);
-    jumped.blit(body, 0, -1);
-    return jumped;
-  }
-  return body;
-}
-
 COLOR_CSS.forEach((c, i) => {
-  const sheet = new Img(T * 3, T * 4);
-  (["down", "up", "left", "right"] as Face[]).forEach((face, row) => {
-    LEGS.forEach((legs, col) => sheet.blit(bomberFromFace(hex(c), FACES[face], legs), col * T, row * T));
-  });
-  save(`bomber-${i}.png`, sheet);
-});
-
-COLOR_CSS.forEach((c, i) => {
-  const sheet = new Img(T * 4, T);
-  sheet.blit(emoteFrame(hex(c), "happy", 0), 0, 0);
-  sheet.blit(emoteFrame(hex(c), "happy", 1), T, 0);
-  sheet.blit(emoteFrame(hex(c), "sad", 0), T * 2, 0);
-  sheet.blit(emoteFrame(hex(c), "sad", 1), T * 3, 0);
-  save(`bomber-emotes-${i}.png`, sheet);
+  save(`bomber-${i}.png`, bomberSheet(c));
+  save(`bomber-emotes-${i}.png`, emoteSheet(c));
 });
 
 // -------------------------------------------------------------------- pets
 
-
-// An original long-eared critter. C body, L light belly/ears, F feet, W eye shine, R nose.
-const PET_EARS = [
-  "................",
-  ".KK..........KK.",
-  "KCCK........KCCK",
-  "KCLK........KLCK",
-  "KCLK........KLCK",
-  ".KCK........KCK.",
-  "..KCKKKKKKKKCK..",
-  ".KCCCCCCCCCCCCK.",
-];
-const PET_DOWN = [
-  ...PET_EARS,
-  "KCCCCCCCCCCCCCCK",
-  "KCCWKCCCCCCWKCCK",
-  "KCCKKCCCCCCKKCCK",
-  "KCCCCCCRRCCCCCCK",
-  ".KCCCLLLLLLCCCK.",
-  "..KCCLLLLLLCCK..",
-];
-const PET_UP = [
-  ...PET_EARS,
-  "KCCCCCCCCCCCCCCK",
-  "KCCCCCCCCCCCCCCK",
-  "KCCCCCCCCCCCCCCK",
-  "KCCCCCCLLCCCCCCK",
-  ".KCCCCLLLLCCCCK.",
-  "..KCCCCCCCCCCK..",
-];
-const PET_RIGHT = [
-  "................",
-  "....KK.KK.......",
-  "...KCCKCCK......",
-  "...KCLKCLK......",
-  "....KCKKCK......",
-  "....KCCCCKK.....",
-  "...KCCCCCCCK....",
-  "..KCCCCCCCCCKK..",
-  "..KCCCCCCCCWKCK.",
-  "..KCCCCCCCCKKCCK",
-  "..KCCCCCCCCCCRRK",
-  "...KCCLLLLCCCCK.",
-  "..LKCLLLLLLCCK..",
-  ".LLKCLLLLLLCK...",
-];
-const PET_FEET = [
-  ["..KFFK....KFFK..", "..KKK......KKK.."],
-  ["...KFFK..KFFK...", "...KKK....KKK..."],
-];
-
-function petFrame(color: RGBA, body: string[], feet: string[]): Img {
-  return fromAscii([...body, ...feet], {
-    K: hex("#15151f"),
-    C: color,
-    L: lighten(color, 0.5),
-    F: shade(color, 0.6),
-    W: hex("#ffffff"),
-    R: hex("#ff7a9a"),
-  });
-}
-
-/** pets.png: one row per PET_KINDS; columns down0, down1, right0, right1, up0, up1 (left = mirrored right). */
-const pets = new Img(T * PET_SHEET_COLS, T * PET_KINDS.length);
-PET_KINDS.forEach((kind, row) => {
-  const color = hex(PET_INFO[kind].color);
-  [PET_DOWN, PET_RIGHT, PET_UP].forEach((body, view) => {
-    PET_FEET.forEach((feet, frame) => pets.blit(petFrame(color, body, feet), (view * 2 + frame) * T, row * T));
-  });
-});
-save("pets.png", pets);
+save("pets.png", petSheet());

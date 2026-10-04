@@ -5,7 +5,7 @@ import { Effects } from "../game/effects";
 import { diffGame } from "../game/events";
 import { combineInputs, useControls, type GamepadReader, type TouchPad } from "../game/controls";
 import { hudKey } from "../game/hud";
-import { musicFor } from "../game/mapInfo";
+import { mapInfo, musicFor } from "../game/mapInfo";
 import { Keyboard, PLAYER_KEYS } from "../game/input";
 import { TouchControls } from "../game/TouchControls";
 import { HudPlayer } from "../game/PlayerStats";
@@ -80,7 +80,7 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
           if (prevEvent) {
             const events = diffGame(prevEvent, snap);
             playSounds(events, me);
-            effects.spawn(events);
+            effects.spawn(events, mapInfo(snap.mapId).theme);
           }
           prevEvent = snap;
         }

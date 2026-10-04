@@ -1,17 +1,35 @@
-import { FLAME_TICKS, TILE, tileAt, wrap, type Bomb, type GameState } from "@bomberman/engine";
+import { FLAME_TICKS, TILE, tileAt, wrap, type Bomb, type GameState, type Player } from "@bomberman/engine";
 import type { AmbientSource, Effects } from "./effects";
+import type { ActionPose } from "./events";
 import { drawFlames } from "./fire";
 import { ITEM_COL } from "./items";
-import { TILE_COL, TILE_PX, drawPetSprite, type Sprites } from "./sprites";
+import { mapInfo } from "./mapInfo";
+import { ANCHOR, TILE_PX, drawBomber, drawMount, drawTile, tileName, type BomberFrame, type Sprites } from "./sprites";
 
 export const SCALE = 3;
 
-const FACE_ROW = { down: 0, up: 1, left: 2, right: 3 } as const;
-/** how far a rider sits above the ground, and the top of a pet's hop, in sprite pixels */
-const RIDE_HEIGHT = 6;
+/** the top of a pet's hop, in sprite pixels */
 const JUMP_HEIGHT = 12;
 /** a dizzy bomber turns round and round */
 const SPIN = ["down", "left", "up", "right"] as const;
+const WALK: BomberFrame[] = ["walkA", "idle", "walkB", "idle"];
+const CARRY_WALK: BomberFrame[] = ["carryWalkA", "carry", "carryWalkB", "carry"];
+
+const hop = (p: Player) => (p.jump ? Math.sin(Math.min(1, p.jump.ticks / p.jump.total) * Math.PI) * JUMP_HEIGHT : 0);
+/** A mount's legs (and its rider) move in two steps. */
+const mountStep = (p: Player, timeMs: number) => (p.moving ? Math.floor(timeMs / 120) % 2 : 0);
+/** The top of a bomber's sprite, `z` off the ground: standing, or sitting on its mount (bobbing with its `step`). */
+const bomberTop = (p: Player, z: number, step: number) => p.y * TILE_PX - z - (p.pet ? ANCHOR.rideTop + step : ANCHOR.standTop);
+
+/** What the bomber is doing, as a frame: dizzy and riding win, then carrying, a passing action, walking. */
+function bomberFrame(p: Player, pose: ActionPose | null, timeMs: number): BomberFrame {
+  if (p.stunned > 0) return "dizzy";
+  if (p.pet) return "ride";
+  const walk = Math.floor(timeMs / 110) % 4;
+  if (p.holding !== null) return p.moving ? CARRY_WALK[walk] : "carry";
+  if (pose) return pose;
+  return p.moving ? WALK[walk] : "idle";
+}
 
 export function canvasSize(state: GameState) {
   return { width: state.width * TILE_PX * SCALE, height: state.height * TILE_PX * SCALE };
@@ -23,13 +41,15 @@ const board = {
   tiles: [] as number[],
   /** the array last drawn: snapshots reuse it while the board doesn't change, so this usually short-circuits */
   source: null as readonly number[] | null,
-  sprites: null as Sprites | null,
+  /** the map's tile sheet it was drawn with */
+  sheet: null as HTMLImageElement | null,
 };
 
 function boardImage(state: GameState, sprites: Sprites): HTMLCanvasElement {
+  const sheet = sprites.tiles[mapInfo(state.mapId).theme];
   const unchanged =
     board.canvas &&
-    board.sprites === sprites &&
+    board.sheet === sheet &&
     (board.source === state.tiles ||
       (board.tiles.length === state.tiles.length && state.tiles.every((t, i) => t === board.tiles[i])));
   board.source = state.tiles;
@@ -42,21 +62,13 @@ function boardImage(state: GameState, sprites: Sprites): HTMLCanvasElement {
   for (let y = 0; y < state.height; y++) {
     for (let x = 0; x < state.width; x++) {
       const t = tileAt(state, x, y);
-      // floor right under a block gets the shadowed variant
-      const col =
-        t === TILE.HARD
-          ? TILE_COL.hard
-          : t === TILE.SOFT
-            ? TILE_COL.soft
-            : tileAt(state, x, y - 1) !== TILE.EMPTY
-              ? TILE_COL.floorShadow
-              : TILE_COL.floor;
-      g.drawImage(sprites.tiles, col * TILE_PX, 0, TILE_PX, TILE_PX, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX);
+      const kind = t === TILE.HARD ? "hard" : t === TILE.SOFT ? "soft" : "floor";
+      drawTile(g, sheet, tileName(kind, tileAt(state, x, y - 1) !== TILE.EMPTY, x, y), x, y);
     }
   }
   board.canvas = canvas;
   board.tiles = [...state.tiles];
-  board.sprites = sprites;
+  board.sheet = sheet;
   return canvas;
 }
 
@@ -70,13 +82,13 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, sprites:
   const shake = effects?.shakeOffset();
   if (shake) ctx.translate(shake.x, shake.y);
 
-  const cell = (img: HTMLImageElement, col: number, row: number, dx: number, dy: number) =>
-    ctx.drawImage(img, col * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX, dx, dy, TILE_PX, TILE_PX);
+  const cell = (img: HTMLImageElement, col: number, dx: number, dy: number) =>
+    ctx.drawImage(img, col * TILE_PX, 0, TILE_PX, TILE_PX, dx, dy, TILE_PX, TILE_PX);
 
   ctx.drawImage(boardImage(state, sprites), 0, 0);
 
   const bob = Math.sin(timeMs / 180) * 0.8;
-  for (const u of state.powerUps) cell(sprites.powerups, ITEM_COL[u.kind], 0, u.x * TILE_PX, u.y * TILE_PX + bob);
+  for (const u of state.powerUps) cell(sprites.powerups, ITEM_COL[u.kind], u.x * TILE_PX, u.y * TILE_PX + bob);
 
   const bombFrame = [0, 1, 2, 1][Math.floor(timeMs / 150) % 4];
 
@@ -114,7 +126,7 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, sprites:
       ctx.fill();
       ctx.drawImage(sprites.bomb, bombFrame * TILE_PX, 0, TILE_PX, TILE_PX, Math.round(px - 2), Math.round(dy - 3), 20, 20);
     } else {
-      cell(sprites.bomb, bombFrame, 0, Math.round(px), Math.round(dy));
+      cell(sprites.bomb, bombFrame, Math.round(px), Math.round(dy));
     }
     if (b.remote) {
       ctx.fillStyle = Math.floor(timeMs / 220) % 2 === 0 ? "#ff3b30" : "#ffd2cf";
@@ -143,11 +155,10 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, sprites:
 
   const players = [...state.players].filter((p) => p.alive).sort((a, b) => a.y - b.y);
   for (const p of players) {
-    const step = p.moving ? Math.floor(timeMs / 120) % 2 : 0;
-    const col = p.moving ? 1 + step : 0;
-    const z = p.jump ? Math.sin(Math.min(1, p.jump.ticks / p.jump.total) * Math.PI) * JUMP_HEIGHT : 0;
+    const z = hop(p);
+    const step = mountStep(p, timeMs);
     const sx = Math.round(p.x * TILE_PX - 8);
-    const sy = Math.round(p.y * TILE_PX - 11 - z - (p.pet ? RIDE_HEIGHT : 0));
+    const sy = Math.round(bomberTop(p, z, step));
     const facing = p.stunned > 0 ? SPIN[Math.floor(timeMs / 90) % 4] : p.facing;
 
     if (z > 0) {
@@ -158,8 +169,12 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, sprites:
     }
     ctx.save();
     if (p.invuln > 0 && Math.floor(timeMs / 70) % 2 === 0) ctx.globalAlpha = 0.35;
-    if (p.pet) drawPetSprite(ctx, sprites.pets, p.pet.kind, facing, step, sx, Math.round(p.y * TILE_PX - 9 - z));
-    cell(sprites.bombers[p.color], col, FACE_ROW[facing], sx, sy);
+    // a rider sits between its mount's body and its head
+    const mx = p.x * TILE_PX - ANCHOR.mountLeft;
+    const my = p.y * TILE_PX - ANCHOR.mountTop - z;
+    if (p.pet) drawMount(ctx, sprites.pets, p.pet.kind, facing, step, "body", mx, my);
+    drawBomber(ctx, sprites.bombers[p.color], bomberFrame(p, effects?.poseOf(p.id) ?? null, timeMs), facing, sx, sy);
+    if (p.pet) drawMount(ctx, sprites.pets, p.pet.kind, facing, step, "head", mx, my);
     ctx.restore();
 
     if (p.stunned > 0) {
@@ -178,14 +193,15 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, sprites:
 
     if (p.pet && p.pet.dashTicks > 0) ambient.push({ kind: "dash", x: p.x * TILE_PX, y: p.y * TILE_PX + 4, dir: p.facing });
 
-    if (p.vest) ambient.push({ kind: "vest", x: sx + 8, y: sy + 9 });
-    if (p.invuln > 0) ambient.push({ kind: "invuln", x: sx + 8, y: sy + 9 });
-    if (p.disease) ambient.push({ kind: "curse", x: sx + 8, y: sy + 8 });
+    // the bubble and its sparkles wrap the whole bomber, head to boots
+    if (p.vest) ambient.push({ kind: "vest", x: sx + 8, y: sy + 13 });
+    if (p.invuln > 0) ambient.push({ kind: "invuln", x: sx + 8, y: sy + 13 });
+    if (p.disease) ambient.push({ kind: "curse", x: sx + 8, y: sy + 10 });
     if (p.vest) {
       ctx.strokeStyle = `rgba(143,208,255,${0.65 + 0.3 * Math.sin(timeMs / 150)})`;
       ctx.lineWidth = 1.4;
       ctx.beginPath();
-      ctx.arc(sx + 8, sy + 9, 9.5, 0, Math.PI * 2);
+      ctx.ellipse(sx + 8, sy + 13, 10, 13, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
     if (p.disease) {
@@ -200,18 +216,16 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, sprites:
   for (const p of state.players) {
     if (p.alive || !p.ghost) continue;
     const bob = Math.sin(timeMs / 260 + p.color) * 1.5;
-    const sx = Math.round(p.x * TILE_PX - 8);
-    const sy = Math.round(p.y * TILE_PX - 10 + bob);
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     ctx.fillStyle = "rgba(150,90,255,0.35)";
     ctx.beginPath();
-    ctx.arc(p.x * TILE_PX, p.y * TILE_PX - 2 + bob, 9, 0, Math.PI * 2);
+    ctx.ellipse(p.x * TILE_PX, p.y * TILE_PX - 6 + bob, 10, 12, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
     ctx.save();
     ctx.globalAlpha = 0.7;
-    cell(sprites.bombers[p.color], 0, FACE_ROW[p.facing], sx, sy);
+    drawBomber(ctx, sprites.bombers[p.color], "idle", p.facing, p.x * TILE_PX - 8, p.y * TILE_PX - ANCHOR.standTop + 1 + bob);
     ctx.restore();
     ambient.push({ kind: "curse", x: p.x * TILE_PX, y: p.y * TILE_PX + 4 });
   }
@@ -221,7 +235,7 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, sprites:
     const carrier = state.players.find((p) => p.id === b.held);
     if (!carrier?.alive) continue;
     const x = Math.round(carrier.x * TILE_PX - 8);
-    const y = Math.round(carrier.y * TILE_PX - 11) - 11 - (carrier.pet ? RIDE_HEIGHT : 0) - Math.abs(Math.sin(timeMs / 140)) * 1.5;
+    const y = Math.round(bomberTop(carrier, hop(carrier), mountStep(carrier, timeMs))) - 9 - Math.abs(Math.sin(timeMs / 140)) * 1.5;
     drawBomb(b, x, y, 0);
   }
 

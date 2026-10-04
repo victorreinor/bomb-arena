@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MAPS, getMap, wrap, type MapDef } from "@bomberman/engine";
 import { mapInfo } from "../game/mapInfo";
-import { TILE_COL, TILE_PX, load } from "../game/sprites";
+import { TILE_PX, TILE_THEMES, drawTile, load, loaded, tileName, tileSheetUrl } from "../game/sprites";
 
 /** Counts shown under the preview. */
 function mapStats(map: MapDef) {
@@ -13,30 +13,30 @@ function mapStats(map: MapDef) {
 }
 
 /**
- * The map's layout drawn with the game's own tiles: stone pillars, bricks (faded: they are random
- * each match) and the four starting corners.
+ * The map's layout drawn with its own tiles: pillars, bricks (faded: they are random each match) and the
+ * four starting corners.
  */
 export function MapPreview({ map }: { map: MapDef }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const [tiles, setTiles] = useState<HTMLImageElement | null>(null);
+  const url = tileSheetUrl(mapInfo(map.id).theme);
+  const [tiles, setTiles] = useState<HTMLImageElement | null>(() => loaded(url) ?? null);
   useEffect(() => {
-    load("/sprites/tiles.png").then(setTiles, () => setTiles(null));
-  }, []);
+    load(url).then(setTiles, () => setTiles(null));
+  }, [url]);
 
-  useEffect(() => {
+  // drawn before the first paint, so a preview sliding in never shows up blank
+  useLayoutEffect(() => {
     const canvas = ref.current;
     if (!canvas || !tiles) return;
     const g = canvas.getContext("2d")!;
     g.imageSmoothingEnabled = false;
-    const tile = (col: number, x: number, y: number) =>
-      g.drawImage(tiles, col * TILE_PX, 0, TILE_PX, TILE_PX, x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX);
     map.rows.forEach((row, y) =>
       [...row].forEach((ch, x) => {
-        if (ch === "#") return tile(TILE_COL.hard, x, y);
-        tile(TILE_COL.floor, x, y);
+        if (ch === "#") return drawTile(g, tiles, "hard", x, y);
+        drawTile(g, tiles, tileName("floor", "#+".includes(map.rows[y - 1]?.[x] ?? "."), x, y), x, y);
         if (ch === "+" || ch === "o") {
           g.globalAlpha = ch === "o" ? 0.55 : 1;
-          tile(TILE_COL.soft, x, y);
+          drawTile(g, tiles, "soft", x, y);
           g.globalAlpha = 1;
         } else if (ch >= "1" && ch <= "4") {
           g.fillStyle = "#ffd23a";
@@ -73,6 +73,17 @@ export function MapPicker({ selected, editable, onSelect }: { selected: string; 
   const stats = mapStats(map);
   const go = (step: number) => onSelect(MAPS[wrap(index + step, MAPS.length)].id);
 
+  // every map's tiles, ready before anyone flips to it
+  useEffect(() => TILE_THEMES.forEach((theme) => void load(tileSheetUrl(theme)).catch(() => {})), []);
+
+  // which way the carousel turned, so the new map slides in from that side (React's "previous value in state")
+  const [shown, setShown] = useState({ index, turn: "next" as "next" | "prev" });
+  let turn = shown.turn;
+  if (shown.index !== index) {
+    turn = wrap(index - shown.index, MAPS.length) <= MAPS.length / 2 ? "next" : "prev";
+    setShown({ index, turn });
+  }
+
   return (
     <div
       className="map-carousel"
@@ -91,20 +102,24 @@ export function MapPicker({ selected, editable, onSelect }: { selected: string; 
             ◀
           </button>
         )}
-        <MapPreview map={map} />
+        <div key={map.id} className={`map-slide ${turn}`}>
+          <MapPreview map={map} />
+        </div>
         {editable && (
           <button type="button" className="map-arrow" onClick={() => go(1)} aria-label="Próximo mapa">
             ▶
           </button>
         )}
       </div>
-      <div className="map-caption">
-        <b>{map.name}</b> <span className="tag">{info.level}</span>
-        {!editable && <span className="muted"> · escolhido pelo anfitrião</span>}
+      <div key={map.id} className="map-text">
+        <div className="map-caption">
+          <b>{map.name}</b> <span className="tag">{info.level}</span>
+          {!editable && <span className="muted"> · escolhido pelo anfitrião</span>}
+        </div>
+        <p className="map-info">
+          {info.desc} <span className="muted">Pilares: {stats.pillars} · tijolos em ~{stats.bricks}% das casas livres.</span>
+        </p>
       </div>
-      <p className="map-info">
-        {info.desc} <span className="muted">Pilares: {stats.pillars} · tijolos em ~{stats.bricks}% das casas livres.</span>
-      </p>
       {editable && (
         <div className="map-dots" role="radiogroup" aria-label="Escolher mapa">
           {MAPS.map((m) => (

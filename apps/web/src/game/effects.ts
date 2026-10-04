@@ -1,10 +1,10 @@
 import { DIR_VEC, type Dir, type PetKind, type PowerUpKind } from "@bomberman/engine";
 import { COLOR_CSS } from "./colors";
-import type { GameEvent } from "./events";
+import type { ActionPose, GameEvent } from "./events";
 import { drawFireball, drawGlow } from "./fire";
 import { ITEM_INFO, PET_INFO } from "./items";
 import { settings } from "./settings";
-import { TILE_PX as T, drawPetSprite, type Sprites } from "./sprites";
+import { ANCHOR, THEME_COLORS, TILE_PX as T, drawBomber, drawMount, type Sprites, type TileTheme } from "./sprites";
 
 /** All positions and sizes below are in sprite pixels (one tile = T). */
 const MAX_PARTICLES = 500;
@@ -58,11 +58,13 @@ interface Runaway extends Timed {
 
 const DEATH_BLINK_S = 0.4;
 const DEATH_TOTAL_S = 1.3;
+/** how long a bomber holds each action pose, in ms */
+const POSE_MS: Record<ActionPose, number> = { kick: 220, punch: 220, throw: 260, place: 180 };
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 const pick = <V>(list: readonly V[]) => list[Math.floor(Math.random() * list.length)];
 const SPARK_COLORS = ["#ffffff", "#fff3a8", "#ffd23a", "#ff9a1e", "#ff5a1a"];
-const DEBRIS_COLORS = ["#cf8340", "#a8602a", "#6e401c", "#e0a060"];
+
 
 /** Ages every entry by `dt` and drops the expired ones, in place. */
 function prune<V extends Timed>(list: V[], dt: number) {
@@ -118,8 +120,12 @@ export class Effects {
   private fireballs: Blob[] = [];
   private deaths: Death[] = [];
   private runaways: Runaway[] = [];
+  /** action poses by player id, until (in update() time) */
+  private poses = new Map<string, { pose: ActionPose; until: number }>();
   private shake = 0;
   private flash = 0;
+  /** the map's look, for the colour of debris */
+  private theme: TileTheme = "garden";
   private lastNow = 0;
   private dt = 0;
 
@@ -130,11 +136,19 @@ export class Effects {
     this.fireballs.length = 0;
     this.deaths.length = 0;
     this.runaways.length = 0;
+    this.poses.clear();
     this.shake = 0;
     this.flash = 0;
   }
 
-  spawn(events: GameEvent[]) {
+  /** The pose this bomber is caught in right now, if any (kicking, punching, throwing, laying a bomb). */
+  poseOf(id: string): ActionPose | null {
+    const pose = this.poses.get(id);
+    return pose && pose.until > this.lastNow ? pose.pose : null;
+  }
+
+  spawn(events: GameEvent[], theme: TileTheme) {
+    this.theme = theme;
     for (const e of events) {
       switch (e.type) {
         case "explosion":
@@ -184,6 +198,9 @@ export class Effects {
           break;
         case "stun":
           this.stun(e.x, e.y);
+          break;
+        case "pose":
+          this.poses.set(e.id, { pose: e.pose, until: this.lastNow + POSE_MS[e.pose] });
           break;
         case "haunt":
           this.haunt(e.x, e.y);
@@ -338,7 +355,7 @@ export class Effects {
     }
 
     for (const b of e.blocks) {
-      this.debris((b.x + 0.5) * T, (b.y + 0.5) * T, 9, DEBRIS_COLORS, { speed: [25, 90], life: [0.5, 1], size: [1.5, 3], gravity: 220 });
+      this.debris((b.x + 0.5) * T, (b.y + 0.5) * T, 9, THEME_COLORS[this.theme].brick, { speed: [25, 90], life: [0.5, 1], size: [1.5, 3], gravity: 220 });
     }
 
     const size = Math.min(1, e.flames.length / 14);
@@ -487,7 +504,7 @@ export class Effects {
         const bx = (Math.floor(x) + v.dx * 2 + 0.5) * T;
         const by = (Math.floor(y) + v.dy * 2 + 0.5) * T;
         this.puffs(bx - v.dx * 8, by - v.dy * 8 + 4, 9, "#a08a6a", 18, 10);
-        this.debris(bx - v.dx * 8, by - v.dy * 8, 8, DEBRIS_COLORS, { lift: 30, gravity: 200 });
+        this.debris(bx - v.dx * 8, by - v.dy * 8, 8, THEME_COLORS[this.theme].brick, { lift: 30, gravity: 200 });
         this.jolt(1.6);
         break;
       }
@@ -504,7 +521,7 @@ export class Effects {
     const cy = (ty + 0.5) * T;
     this.ring(cx, cy + 4, 0.3, T * 1.2, "#c8c8d8");
     this.puffs(cx, cy + 6, 6, "#8a8a99", 20, 6);
-    this.debris(cx, cy + 4, 6, ["#9aa0b8", "#6a6f88"]);
+    this.debris(cx, cy + 4, 6, THEME_COLORS[this.theme].block);
     this.jolt(1.6);
   }
 
@@ -680,9 +697,11 @@ export class Effects {
     const v = DIR_VEC[r.dir];
     ctx.save();
     ctx.globalAlpha = (1 - t) * (Math.floor(r.age / 0.06) % 2 === 0 ? 1 : 0.6);
-    const x = r.x + v.dx * 46 * t - 8;
-    const y = r.y - 16 - Math.abs(Math.sin(t * Math.PI * 3)) * 6;
-    drawPetSprite(ctx, sprites.pets, r.kind, r.dir, Math.floor(r.age / 0.08) % 2, x, y);
+    const x = r.x + v.dx * 46 * t - ANCHOR.mountLeft;
+    const y = r.y - ANCHOR.mountTop - Math.abs(Math.sin(t * Math.PI * 3)) * 6;
+    const step = Math.floor(r.age / 0.08) % 2;
+    drawMount(ctx, sprites.pets, r.kind, r.dir, step, "body", x, y);
+    drawMount(ctx, sprites.pets, r.kind, r.dir, step, "head", x, y);
     ctx.restore();
   }
 
@@ -690,15 +709,17 @@ export class Effects {
   private drawDeath(ctx: CanvasRenderingContext2D, sprites: Sprites, d: Death) {
     const sheet = sprites.bombers[d.color];
     if (!sheet) return;
+    // d.y sits 2px above the player's centre; the frame goes where the standing bomber was
+    const ouch = () => drawBomber(ctx, sheet, "ouch", "down", -8, 2 - ANCHOR.standTop);
     ctx.save();
     if (d.age < DEATH_BLINK_S) {
       const lit = Math.floor(d.age / 0.05) % 2 === 0;
       ctx.translate(d.x + rand(-0.8, 0.8), d.y);
       ctx.globalAlpha = lit ? 1 : 0.35;
-      ctx.drawImage(sheet, 0, 0, T, T, -8, -8, T, T);
+      ouch();
       if (lit) {
         ctx.globalCompositeOperation = "lighter"; // drawing it twice washes it out to white-hot
-        ctx.drawImage(sheet, 0, 0, T, T, -8, -8, T, T);
+        ouch();
       }
     } else {
       const t = (d.age - DEATH_BLINK_S) / (DEATH_TOTAL_S - DEATH_BLINK_S);
@@ -707,7 +728,7 @@ export class Effects {
       ctx.globalAlpha = 1 - t;
       const s = 1 - t * 0.4;
       ctx.scale(s, s);
-      ctx.drawImage(sheet, 0, 0, T, T, -8, -8, T, T);
+      ouch();
     }
     ctx.restore();
   }

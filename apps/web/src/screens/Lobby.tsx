@@ -69,7 +69,9 @@ export function Lobby({ room, me, reconnecting, send, onLeave }: Props) {
           </span>
         </div>
         <div className="row">
-          <button onClick={copy}>{copied ? "Link copiado!" : "Copiar link de convite"}</button>
+          <button className={copied ? "copied" : ""} onClick={copy}>
+            {copied ? "Link copiado!" : "Copiar link de convite"}
+          </button>
           <button className="ghost" onClick={onLeave}>
             Sair
           </button>
@@ -119,7 +121,10 @@ export function Lobby({ room, me, reconnecting, send, onLeave }: Props) {
                     ✕
                   </button>
                 )}
-                <span className="member-state">{!m.connected ? "desconectado" : m.ready ? "pronto" : "aguardando"}</span>
+                {/* keyed by the state, so a change replays its little pop */}
+                <span key={`${m.connected}-${m.ready}`} className={`member-state${m.connected && m.ready ? " is-ready" : ""}`}>
+                  {!m.connected ? "desconectado" : m.ready ? "pronto" : "aguardando"}
+                </span>
               </li>
             ))}
           </ul>

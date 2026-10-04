@@ -11,6 +11,11 @@ export class Img {
     this.data = new Uint8Array(w * h * 4);
   }
 
+  get(x: number, y: number): RGBA {
+    const i = (y * this.w + x) * 4;
+    return [this.data[i], this.data[i + 1], this.data[i + 2], this.data[i + 3]];
+  }
+
   set(x: number, y: number, c: RGBA) {
     if (x < 0 || y < 0 || x >= this.w || y >= this.h) return;
     this.data.set(c, (y * this.w + x) * 4);
@@ -24,9 +29,8 @@ export class Img {
   blit(src: Img, dx: number, dy: number) {
     for (let y = 0; y < src.h; y++) {
       for (let x = 0; x < src.w; x++) {
-        const i = (y * src.w + x) * 4;
-        if (src.data[i + 3] === 0) continue;
-        this.set(dx + x, dy + y, [src.data[i], src.data[i + 1], src.data[i + 2], src.data[i + 3]]);
+        const c = src.get(x, y);
+        if (c[3] !== 0) this.set(dx + x, dy + y, c);
       }
     }
   }
@@ -36,6 +40,19 @@ export function hex(h: string, a = 255): RGBA {
   const n = parseInt(h.replace("#", ""), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255, a];
 }
+
+/** `a` blended `t` of the way towards `b` (alpha kept from `a`). */
+export function mix(a: RGBA, b: RGBA, t: number): RGBA {
+  const m = (i: number) => Math.round(a[i] + (b[i] - a[i]) * t);
+  return [m(0), m(1), m(2), a[3]];
+}
+/** Darker (f < 1) or brighter (f > 1), clamped. */
+export function shade(c: RGBA, f: number): RGBA {
+  const m = (v: number) => Math.max(0, Math.min(255, Math.round(v * f)));
+  return [m(c[0]), m(c[1]), m(c[2]), c[3]];
+}
+/** `f` of the way towards white. */
+export const lighten = (c: RGBA, f: number): RGBA => mix(c, [255, 255, 255, 255], f);
 
 /** Draw an ASCII sprite: `.` is transparent, other chars are looked up in `palette`. */
 export function fromAscii(rows: string[], palette: Record<string, RGBA>): Img {

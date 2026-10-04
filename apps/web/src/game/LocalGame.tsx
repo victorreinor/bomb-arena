@@ -25,7 +25,7 @@ import { Effects } from "./effects";
 import { diffGame } from "./events";
 import { combineInputs, useControls } from "./controls";
 import { hudKey } from "./hud";
-import { musicFor } from "./mapInfo";
+import { mapInfo, musicFor } from "./mapInfo";
 import { Keyboard, PLAYER_KEYS } from "./input";
 import { TouchControls } from "./TouchControls";
 import { MatchTimer } from "./MatchTimer";
@@ -125,7 +125,7 @@ export function LocalGame({ bots }: { bots: BotLevel | null }) {
         current = structuredClone(state);
         const events = diffGame(previous, current);
         playSounds(events);
-        effects.spawn(events);
+        effects.spawn(events, mapInfo(current.mapId).theme);
         acc -= TICK_MS;
       }
       render(ctx, lerpState(previous, current, acc / TICK_MS), sprites, now, effects);

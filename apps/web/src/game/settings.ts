@@ -8,7 +8,14 @@ export const settings = {
       : typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches,
 };
 
+/** The stylesheet stills interface animations under this class. */
+function applyMotionClass() {
+  if (typeof document !== "undefined") document.documentElement.classList.toggle("reduce-motion", settings.reduceMotion);
+}
+applyMotionClass();
+
 export function setReduceMotion(on: boolean) {
   settings.reduceMotion = on;
   writePref("reduceMotion", on ? "1" : "0");
+  applyMotionClass();
 }
