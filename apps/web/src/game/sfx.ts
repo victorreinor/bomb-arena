@@ -1,6 +1,6 @@
 import { audio } from "./audio";
 import type { PetKind } from "@bomberman/engine";
-import type { GameEvent } from "./events";
+import { isMine, type GameEvent } from "./events";
 
 /** The kicker power has no sound of its own: the bomb it kicks already makes one. */
 const PET_SOUND: Record<PetKind, "dash" | "jump" | "push" | null> = { runner: "dash", jumper: "jump", pusher: "push", kicker: null };
@@ -24,7 +24,7 @@ export function playSounds(events: GameEvent[], me?: string) {
         died = true;
         break;
       case "pickup":
-        if (me === undefined || e.id === me) audio.sfx("powerup");
+        if (isMine(e.id, me)) audio.sfx("powerup");
         break;
       case "kick":
         audio.sfx("kick");
@@ -68,11 +68,11 @@ export function playSounds(events: GameEvent[], me?: string) {
         audio.sfx("bonk");
         break;
       case "infected":
-        if (me === undefined || e.id === me) audio.sfx("skull");
+        if (isMine(e.id, me)) audio.sfx("skull");
         break;
       case "finish":
         // let the last blast and death ring out before the jingle
-        audio.sfx(e.winner === null ? "draw" : me === undefined || e.winner === me ? "win" : "lose", 1.1);
+        audio.sfx(e.winner === null ? "draw" : isMine(e.winner, me) ? "win" : "lose", 1.1);
         break;
     }
   }

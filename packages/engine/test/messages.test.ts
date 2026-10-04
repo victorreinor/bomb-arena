@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createRoom,
   handleClientMessage,
+  inputAcks,
   joinRoom,
   stepRoom,
   TILE,
@@ -89,6 +90,23 @@ describe("client messages reach the game", () => {
     send(room, { ...idle, action: true });
     tick(room);
     expect(g.bombs[0].flight).not.toBeNull();
+  });
+
+  test("a numbered input comes back in the acks with the tick it took over, until the next numbered one", () => {
+    const room = match();
+    expect(inputAcks(room)).toEqual({});
+    send(room, { ...idle, dx: 1, seq: 5 });
+    tick(room);
+    const took = room.game!.tick;
+    expect(inputAcks(room)).toEqual({ u1: [5, took] });
+    send(room, { ...idle, dx: 0 }); // an older client: no number, the last one (and its tick) stands
+    send(room, { ...idle, dy: 1, seq: "7" as unknown as number }, "u2"); // not a number: ignored
+    tick(room, 3);
+    expect(inputAcks(room)).toEqual({ u1: [5, took] });
+    send(room, { ...idle, seq: 6 });
+    expect(inputAcks(room)).toEqual({}); // received, but not applied by any tick yet
+    tick(room);
+    expect(inputAcks(room)).toEqual({ u1: [6, room.game!.tick] });
   });
 
   test("garbage input is ignored safely", () => {

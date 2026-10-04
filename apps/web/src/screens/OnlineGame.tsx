@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { TICK_RATE, type ClientMsg, type GameState, type Input, type RoomView } from "@bomberman/engine";
 import { audio } from "../game/audio";
 import { Effects } from "../game/effects";
-import { diffGame } from "../game/events";
+import { diffGame, type GameEvent } from "../game/events";
 import { combineInputs, useControls, type GamepadReader, type TouchPad } from "../game/controls";
+import { feel } from "../game/haptics";
 import { hudKey } from "../game/hud";
+import { PredictedView, Predictor } from "../game/predict";
 import { mapInfo, musicFor } from "../game/mapInfo";
 import { Keyboard, PLAYER_KEYS } from "../game/input";
 import { TouchControls } from "../game/TouchControls";
@@ -14,7 +16,7 @@ import { canvasSize, render } from "../game/render";
 import { MatchTimer, showsScore } from "../game/MatchTimer";
 import { playSounds } from "../game/sfx";
 import type { SnapshotBuffer } from "../game/snapshots";
-import { loadSprites, type Sprites } from "../game/sprites";
+import { loadSprites, type Sprites, type TileTheme } from "../game/sprites";
 
 interface Props {
   room: RoomView;
@@ -59,6 +61,15 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
     let lastResultsIn = -2;
     const effects = new Effects();
     let prevEvent: GameState | null = null;
+    // our own bomber runs ahead of the snapshots (see predict.ts); everything else plays back from them
+    const predictor = new Predictor(me);
+    const predicted = new PredictedView(me);
+
+    const react = (events: GameEvent[], theme: TileTheme) => {
+      playSounds(events, me);
+      effects.spawn(events, theme);
+      feel(events, me);
+    };
 
     const frame = (now: number) => {
       if (playing) {
@@ -66,31 +77,31 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
         if (input.dx !== lastDx || input.dy !== lastDy || input.bomb || input.action || input.pet) {
           lastDx = input.dx;
           lastDy = input.dy;
-          sendRef.current({ t: "input", ...input });
+          sendRef.current({ t: "input", ...input, seq: predictor.record(input, now) });
         }
       }
       const sample = buffer.sample(now);
       if (sample) {
+        const theme = mapInfo(sample.latest.mapId).theme;
         // sounds and effects follow the playback clock, so they line up with the picture
         for (const snap of buffer.takePlayed()) {
           if (prevEvent && snap.tick <= prevEvent.tick) {
             prevEvent = null; // a new round started
             effects.clear();
+            predictor.reset();
           }
-          if (prevEvent) {
-            const events = diffGame(prevEvent, snap);
-            playSounds(events, me);
-            effects.spawn(events, mapInfo(snap.mapId).theme);
-          }
+          if (prevEvent) react(predicted.withoutOwn(diffGame(prevEvent, snap)), theme);
           prevEvent = snap;
         }
+        const shown = predicted.apply(sample.view, playing ? predictor.predict(sample.latest, buffer.acks, now) : null, now);
+        react(shown.events, theme);
         if (!sized) {
           const size = canvasSize(sample.latest);
           canvas.width = size.width;
           canvas.height = size.height;
           sized = true;
         }
-        render(ctx, sample.view, sprites, now, effects);
+        render(ctx, shown.view, sprites, now, effects);
         // snapshots arrive at 30 Hz but frames at 60: only look at the HUD when there is something new
         if (sample.latest !== lastLatest || buffer.resultsIn !== lastResultsIn) {
           lastLatest = sample.latest;

@@ -1,10 +1,10 @@
-import { ABILITY_FIELDS, DIR_VEC, TILE, borderRing, fallOrder, type AbilityKind, type Dir, type GameState, type PetKind, type Player, type PowerUpKind } from "@bomberman/engine";
+import { ABILITY_FIELDS, DIR_VEC, TILE, borderRing, fallOrder, type AbilityKind, type Bomb, type Dir, type GameState, type PetKind, type Player, type PowerUpKind } from "@bomberman/engine";
 
 /** What a bomber is caught doing for a moment (the sprite strikes the pose) */
 export type ActionPose = "kick" | "punch" | "throw" | "place";
 
 export type GameEvent =
-  | { type: "bombPlaced"; bombs: { x: number; y: number; power: boolean; remote: boolean }[] }
+  | { type: "bombPlaced"; bombs: { x: number; y: number; power: boolean; remote: boolean; owner: string }[] }
   | {
       type: "explosion";
       bombs: { x: number; y: number; range: number }[];
@@ -12,7 +12,7 @@ export type GameEvent =
       /** soft blocks that were destroyed */
       blocks: { x: number; y: number }[];
     }
-  | { type: "death"; x: number; y: number; color: number }
+  | { type: "death"; id: string; x: number; y: number; color: number }
   | { type: "pickup"; id: string; x: number; y: number; kind: PowerUpKind }
   | { type: "kick"; x: number; y: number; dir: Dir }
   | { type: "throw"; x: number; y: number }
@@ -25,12 +25,25 @@ export type GameEvent =
   | { type: "petLost"; x: number; y: number; pet: PetKind; facing: Dir }
   | { type: "petPower"; x: number; y: number; pet: PetKind; dir: Dir }
   | { type: "petLand"; x: number; y: number }
-  | { type: "stun"; x: number; y: number }
+  | { type: "stun"; id: string; x: number; y: number }
   | { type: "pose"; id: string; pose: ActionPose }
   | { type: "haunt"; x: number; y: number }
   | { type: "hurry" }
   | { type: "blockFall"; cells: { x: number; y: number }[] }
   | { type: "finish"; winner: string | null };
+
+/** Whether something happened to us: `me` is our player id; without one the device is shared, so everything counts. */
+export const isMine = (id: string | null, me: string | undefined) => me === undefined || id === me;
+
+/** Bombs just laid: the event, and the crouch of each living owner (a ghost's bombs come from the wall). */
+export function bombsPlaced(bombs: Bomb[], alive: (id: string) => boolean): GameEvent[] {
+  if (bombs.length === 0) return [];
+  const events: GameEvent[] = [
+    { type: "bombPlaced", bombs: bombs.map((b) => ({ x: b.x, y: b.y, power: b.power, remote: b.remote, owner: b.owner })) },
+  ];
+  for (const owner of new Set(bombs.map((b) => b.owner))) if (alive(owner)) events.push({ type: "pose", id: owner, pose: "place" });
+  return events;
+}
 
 /** Which (good) item was just picked up, judged by what improved on the player; null if nothing did. */
 function pickedKind(before: Player, after: Player): PowerUpKind | null {
@@ -50,13 +63,7 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
   const events: GameEvent[] = [];
 
   const placed = next.bombs.filter((b) => !prev.bombs.some((o) => o.id === b.id));
-  if (placed.length > 0) {
-    events.push({ type: "bombPlaced", bombs: placed.map((b) => ({ x: b.x, y: b.y, power: b.power, remote: b.remote })) });
-    // a ghost's bombs come from the wall: only the living crouch to lay one
-    for (const owner of new Set(placed.map((b) => b.owner))) {
-      if (next.players.some((p) => p.id === owner && p.alive)) events.push({ type: "pose", id: owner, pose: "place" });
-    }
-  }
+  events.push(...bombsPlaced(placed, (id) => next.players.some((p) => p.id === id && p.alive)));
   /** whoever stands on the tile just behind (x, y) going `dir`: the one who kicked or punched it */
   const behind = (x: number, y: number, dir: Dir) =>
     next.players.find((p) => p.alive && Math.floor(p.x) === x - DIR_VEC[dir].dx && Math.floor(p.y) === y - DIR_VEC[dir].dy);
@@ -105,7 +112,7 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
     const before = prev.players.find((o) => o.id === p.id);
     if (!before) continue;
     if (before.alive && !p.alive) {
-      events.push({ type: "death", x: before.x, y: before.y, color: p.color });
+      events.push({ type: "death", id: p.id, x: before.x, y: before.y, color: p.color });
       if (p.ghost) {
         const tile = borderRing(next.width, next.height)[p.ghost.pos];
         events.push({ type: "haunt", x: tile.x + 0.5, y: tile.y + 0.5 });
@@ -119,7 +126,7 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
       events.push({ type: "petPower", x: p.x, y: p.y, pet: p.pet.kind, dir: p.facing });
     }
     if (before.jump && !p.jump) events.push({ type: "petLand", x: p.x, y: p.y });
-    if (p.stunned > before.stunned) events.push({ type: "stun", x: p.x, y: p.y });
+    if (p.stunned > before.stunned) events.push({ type: "stun", id: p.id, x: p.x, y: p.y });
     if (before.vest && !p.vest) events.push({ type: "shield", x: p.x, y: p.y });
     const kind = pickedKind(before, p);
     if (p.disease && !before.disease) events.push({ type: "infected", id: p.id, x: p.x, y: p.y });

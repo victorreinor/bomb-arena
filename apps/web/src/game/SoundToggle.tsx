@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { CHANNELS, audio, type Channel } from "./audio";
-import { setReduceMotion, settings } from "./settings";
+import { buzz, canVibrate } from "./haptics";
+import { setHaptics, setReduceMotion, settings } from "./settings";
 
 const LABEL: Record<Channel, { icon: string; name: string; key: string; volume: string }> = {
   music: { icon: "🎵", name: "Música", key: "M", volume: "Volume da música" },
@@ -93,6 +94,20 @@ export function SoundToggle() {
               />
               <span>Reduzir tremor e clarão</span>
             </label>
+            {canVibrate && (
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={settings.haptics}
+                  onChange={(e) => {
+                    setHaptics(e.target.checked);
+                    if (e.target.checked) buzz("tap");
+                    refresh();
+                  }}
+                />
+                <span>Vibrar (bomba, item, golpe)</span>
+              </label>
+            )}
           </div>
         )}
       </div>

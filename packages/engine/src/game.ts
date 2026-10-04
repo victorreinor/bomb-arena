@@ -209,6 +209,44 @@ function dropHeld(state: GameState, p: Player): Bomb | undefined {
   return bomb;
 }
 
+/**
+ * One living player's part of a tick: timers, then their buttons and their move. The client also runs it
+ * on its own copy of the board to predict its bomber between snapshots, so the two always agree.
+ */
+export function stepPlayer(state: GameState, p: Player, input: Partial<Input> | undefined) {
+  if (p.invuln > 0) p.invuln--;
+  if (p.disease && --p.disease.ticksLeft <= 0) p.disease = null;
+  if (p.pet && p.pet.cooldown > 0) p.pet.cooldown--;
+  if (p.jump) return advanceJump(state, p); // nothing else happens in mid-air
+  if (p.stunned > 0) {
+    p.stunned--; // seeing stars: the controls do nothing
+    return;
+  }
+
+  const flip = p.disease?.kind === "reverse" ? -1 : 1;
+  const dx = Math.sign(input?.dx ?? 0) * flip;
+  const dy = Math.sign(input?.dy ?? 0) * flip;
+  const dashing = (p.pet?.dashTicks ?? 0) > 0;
+  if (!dashing) p.facing = dirFrom(dx, dy) ?? p.facing;
+
+  if (p.disease?.kind === "autoBomb" && state.tick % AUTO_BOMB_INTERVAL_TICKS === 0) placeBomb(state, p);
+  if (input?.action) doAction(state, p);
+  if (input?.bomb) placeBomb(state, p);
+  if (input?.pet) usePet(state, p);
+  if (p.jump) return; // just took off
+
+  if (p.pet && p.pet.dashTicks > 0) {
+    // the runner charges straight ahead, ignoring the controls, until it hits something
+    p.pet.dashTicks--;
+    const d = DIR_VEC[p.facing];
+    movePlayer(state, p, d.dx, d.dy, DASH_FACTOR);
+    if (!p.moving) p.pet.dashTicks = 0;
+  } else {
+    movePlayer(state, p, dx, dy);
+  }
+  updatePassing(state, p);
+}
+
 export function step(state: GameState, inputs: Inputs = {}): void {
   state.tick++;
   if (state.phase !== "playing") {
@@ -217,45 +255,8 @@ export function step(state: GameState, inputs: Inputs = {}): void {
   }
 
   for (const p of state.players) {
-    if (!p.alive) {
-      if (p.ghost) stepGhost(state, p, inputs[p.id]);
-      continue;
-    }
-    if (p.invuln > 0) p.invuln--;
-    if (p.disease && --p.disease.ticksLeft <= 0) p.disease = null;
-    if (p.pet && p.pet.cooldown > 0) p.pet.cooldown--;
-    if (p.jump) {
-      advanceJump(state, p); // nothing else happens in mid-air
-      continue;
-    }
-    if (p.stunned > 0) {
-      p.stunned--; // seeing stars: the controls do nothing
-      continue;
-    }
-
-    const input = inputs[p.id];
-    const flip = p.disease?.kind === "reverse" ? -1 : 1;
-    const dx = Math.sign(input?.dx ?? 0) * flip;
-    const dy = Math.sign(input?.dy ?? 0) * flip;
-    const dashing = (p.pet?.dashTicks ?? 0) > 0;
-    if (!dashing) p.facing = dirFrom(dx, dy) ?? p.facing;
-
-    if (p.disease?.kind === "autoBomb" && state.tick % AUTO_BOMB_INTERVAL_TICKS === 0) placeBomb(state, p);
-    if (input?.action) doAction(state, p);
-    if (input?.bomb) placeBomb(state, p);
-    if (input?.pet) usePet(state, p);
-    if (p.jump) continue; // just took off
-
-    if (p.pet && p.pet.dashTicks > 0) {
-      // the runner charges straight ahead, ignoring the controls, until it hits something
-      p.pet.dashTicks--;
-      const d = DIR_VEC[p.facing];
-      movePlayer(state, p, d.dx, d.dy, DASH_FACTOR);
-      if (!p.moving) p.pet.dashTicks = 0;
-    } else {
-      movePlayer(state, p, dx, dy);
-    }
-    updatePassing(state, p);
+    if (p.alive) stepPlayer(state, p, inputs[p.id]);
+    else if (p.ghost) stepGhost(state, p, inputs[p.id]);
   }
 
   updateBombs(state);

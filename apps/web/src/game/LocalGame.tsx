@@ -24,6 +24,7 @@ import { COLOR_NAMES } from "./colors";
 import { Effects } from "./effects";
 import { diffGame } from "./events";
 import { combineInputs, useControls } from "./controls";
+import { feel } from "./haptics";
 import { hudKey } from "./hud";
 import { mapInfo, musicFor } from "./mapInfo";
 import { Keyboard, PLAYER_KEYS } from "./input";
@@ -126,6 +127,7 @@ export function LocalGame({ bots }: { bots: BotLevel | null }) {
         const events = diffGame(previous, current);
         playSounds(events);
         effects.spawn(events, mapInfo(current.mapId).theme);
+        feel(events, bots ? "p1" : undefined); // against bots the human is p1; two at one keyboard share the phone
         acc -= TICK_MS;
       }
       render(ctx, lerpState(previous, current, acc / TICK_MS), sprites, now, effects);

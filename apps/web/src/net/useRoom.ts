@@ -56,7 +56,7 @@ export function useRoom(opts: { code: string; name: string; create: boolean; cap
           joined = true;
           setStatus("open");
         } else if (msg.t === "room") setRoom(msg.room);
-        else if (msg.t === "state") buffer.push(msg.round, msg.resultsIn, msg.game, performance.now());
+        else if (msg.t === "state") buffer.push(msg.round, msg.resultsIn, msg.game, performance.now(), msg.acks);
         else if (msg.t === "error") rejected = { code: msg.code, message: msg.message };
       };
       ws.onclose = (e) => {

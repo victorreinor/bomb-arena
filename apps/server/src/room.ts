@@ -8,11 +8,13 @@ import {
   roomView,
   clampCapacity,
   handleClientMessage,
+  inputAcks,
   randomSeed,
   stepRoom,
   toSnapshot,
   type ClientMsg,
   type ErrorCode,
+  type InputAck,
   type RoomState,
   type ServerMsg,
   type Tile,
@@ -50,6 +52,8 @@ export class Room {
   /** tiles as last broadcast; snapshots only carry tiles when these change (or someone new arrives) */
   private sentTiles: Tile[] | null = null;
   private sentRound = -1;
+  /** the input acknowledgements as last broadcast, by player: snapshots only carry the ones that changed */
+  private sentAcks = new Map<string, string>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastTime = 0;
   private acc = 0;
@@ -203,10 +207,18 @@ export class Room {
     const tilesChanged =
       this.sentRound !== room.round || !this.sentTiles || game.tiles.some((t, i) => t !== this.sentTiles![i]);
     if (tilesChanged) {
+      if (this.sentRound !== room.round) this.sentAcks.clear();
       this.sentTiles = [...game.tiles];
       this.sentRound = room.round;
     }
-    this.broadcast({ t: "state", round: room.round, resultsIn: room.resultsTicksLeft, game: toSnapshot(game, tilesChanged) });
+    const acks: Record<string, InputAck> = {};
+    for (const [id, ack] of Object.entries(inputAcks(room))) {
+      const key = ack.join(":");
+      if (this.sentAcks.get(id) === key) continue;
+      this.sentAcks.set(id, key);
+      acks[id] = ack;
+    }
+    this.broadcast({ t: "state", round: room.round, resultsIn: room.resultsTicksLeft, game: toSnapshot(game, tilesChanged), ...(Object.keys(acks).length > 0 && { acks }) });
   }
 
   private send(ws: WebSocket, msg: ServerMsg) {

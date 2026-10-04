@@ -10,6 +10,8 @@ class Client {
   ws!: WebSocket;
   room: RoomView | null = null;
   lastState: Extract<ServerMsg, { t: "state" }> | null = null;
+  /** the last input number the server acknowledged for us */
+  acked = 0;
   states: Extract<ServerMsg, { t: "state" }>[] = [];
   errors: string[] = [];
   closed = false;
@@ -29,6 +31,8 @@ class Client {
         if (msg.t === "room") this.room = msg.room;
         else if (msg.t === "state") {
           this.lastState = msg;
+          const ack = msg.acks?.[this.id];
+          if (ack) this.acked = ack[0]; // acknowledgements only come when they change
           this.states.push(msg);
         }
         else if (msg.t === "error") this.errors.push(msg.code);
@@ -113,9 +117,10 @@ check(`server ticks at ~30 Hz (measured ${rate.toFixed(0)})`, rate > 24 && rate 
 const pa = () => a.lastState!.game.players.find((p) => p.id === a.id)!;
 const x0 = pa().x;
 const y0 = pa().y;
-a.send({ t: "input", dx: 1, dy: 0, bomb: false });
+a.send({ t: "input", dx: 1, dy: 0, bomb: false, seq: 41 });
 await sleep(400);
 check("input moves the player on the server", pa().x > x0 + 0.5 || pa().y !== y0);
+check("snapshots acknowledge the numbered input (for the client's prediction)", a.acked === 41);
 a.send({ t: "input", dx: 0, dy: 0, bomb: true });
 await until("bomb", () => a.lastState!.game.bombs.length === 1);
 check("bomb press places a bomb", true);

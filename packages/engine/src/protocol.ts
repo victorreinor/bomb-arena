@@ -85,14 +85,19 @@ export type ClientMsg =
   | { t: "botLevel"; id: string; level: BotLevel }
   | { t: "removeBot"; id: string }
   | { t: "start" }
-  | { t: "input"; dx: number; dy: number; bomb: boolean; action: boolean; pet: boolean };
+  /** `seq` numbers the input so the client can tell which of its inputs a snapshot already includes */
+  | { t: "input"; dx: number; dy: number; bomb: boolean; action: boolean; pet: boolean; seq?: number };
+
+/** [seq, tick]: an input the server is applying, and the tick it was first applied on */
+export type InputAck = [seq: number, tick: number];
 
 export type ErrorCode = "not_found" | "exists" | "full" | "bad_request" | "replaced";
 
 export type ServerMsg =
   | { t: "welcome"; id: string }
   | { t: "room"; room: RoomView }
-  | { t: "state"; round: number; resultsIn: number; game: GameSnapshot }
+  /** `acks`: per player, the input (by `seq`) their bomber moves by and the tick it took over; only those that changed */
+  | { t: "state"; round: number; resultsIn: number; game: GameSnapshot; acks?: Record<string, InputAck> }
   | { t: "error"; code: ErrorCode; message: string };
 
 /**

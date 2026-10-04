@@ -13,6 +13,7 @@ import {
   minutesToTicks,
   type ClientMsg,
   type ErrorCode,
+  type InputAck,
   type MemberView,
   type RoomResult,
   type RoomView,
@@ -57,11 +58,17 @@ export interface RoomState {
   tick: number;
   members: Member[];
   game: GameState | null;
-  inputs: Record<string, Input>;
+  inputs: Record<string, HeldInput>;
   /** -1 until the current match is over, then counts down to the return to the lobby */
   resultsTicksLeft: number;
   lastResult: RoomResult | null;
 }
+
+/**
+ * What a player is holding down, with the number the client gave that input and the tick it first moved
+ * the bomber on (the client's prediction lines its clock up with those).
+ */
+export type HeldInput = Input & { seq?: number; since?: number };
 
 export const clampCapacity = (n: unknown): number =>
   Number.isInteger(n) ? Math.max(MIN_MEMBERS, Math.min(MAX_MEMBERS, n as number)) : MAX_MEMBERS;
@@ -287,12 +294,14 @@ export function startGame(room: RoomState, id: string, seed: number): boolean {
 }
 
 /** Takes whatever the client sent and keeps only valid values. */
-export function setInput(room: RoomState, id: string, raw: Partial<Record<keyof Input, unknown>>) {
+export function setInput(room: RoomState, id: string, raw: Partial<Record<keyof HeldInput, unknown>>) {
   const m = member(room, id);
   if (!m || !m.inGame || room.phase !== "playing") return;
   const clamp = (n: unknown) => (n === -1 || n === 1 ? n : 0);
   const prev = room.inputs[id];
-  const input: Input = { ...emptyInput(), dx: clamp(raw.dx), dy: clamp(raw.dy) };
+  const input: HeldInput = { ...emptyInput(), dx: clamp(raw.dx), dy: clamp(raw.dy) };
+  input.seq = Number.isSafeInteger(raw.seq) ? (raw.seq as number) : prev?.seq;
+  if (input.seq === prev?.seq) input.since = prev?.since;
   // buttons are one-shot presses: keep them queued until the next tick consumes them
   for (const b of BUTTONS) input[b] = !!prev?.[b] || raw[b] === true;
   room.inputs[id] = input;
@@ -366,7 +375,10 @@ export function stepRoom(room: RoomState): boolean {
 
   for (const m of room.members) if (m.bot && m.inGame) room.inputs[m.id] = botInput(game, m.id, m.bot);
   step(game, room.inputs);
-  for (const input of Object.values(room.inputs)) for (const b of BUTTONS) input[b] = false;
+  for (const input of Object.values(room.inputs)) {
+    for (const b of BUTTONS) input[b] = false;
+    input.since ??= game.tick;
+  }
 
   if (game.phase === "finished") {
     if (room.resultsTicksLeft < 0) {
@@ -382,6 +394,13 @@ export function stepRoom(room: RoomState): boolean {
     }
   }
   return changed;
+}
+
+/** For each player whose client numbers its inputs: the input their bomber moves by, and the tick it took over. */
+export function inputAcks(room: RoomState): Record<string, InputAck> {
+  const acks: Record<string, InputAck> = {};
+  for (const [id, { seq, since }] of Object.entries(room.inputs)) if (seq !== undefined && since !== undefined) acks[id] = [seq, since];
+  return acks;
 }
 
 export function roomView(room: RoomState): RoomView {

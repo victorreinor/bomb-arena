@@ -1,5 +1,6 @@
 import { useRef, type PointerEvent } from "react";
 import { fourWay, type TouchPad } from "./controls";
+import { buzz } from "./haptics";
 
 /** On-screen d-pad and buttons for phones; they write into a TouchPad the game loop reads. */
 export function TouchControls({ pad }: { pad: TouchPad }) {
@@ -24,6 +25,7 @@ export function TouchControls({ pad }: { pad: TouchPad }) {
       onPointerDown={(e) => {
         e.preventDefault();
         pad.press(kind);
+        buzz("tap");
       }}
     >
       {label}
