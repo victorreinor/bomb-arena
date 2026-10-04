@@ -6,15 +6,25 @@ export const canFullscreen = typeof document !== "undefined" && !!document.fulls
 /** `lock` is missing from TypeScript's DOM types, as only some browsers have it. */
 type LockableOrientation = ScreenOrientation & { lock?: (orientation: "landscape") => Promise<void> };
 
-/** Full screen and sideways, even with the phone's auto-rotate off. The browser lets go of both on leaving full screen. */
-export async function playSideways() {
+/**
+ * Full screen and sideways, even with the phone's auto-rotate off; the browser lets go of both on leaving
+ * full screen. Resolves to whether the screen was locked sideways (iPhones can do neither).
+ */
+export async function playSideways(): Promise<boolean> {
   try {
     if (!document.fullscreenElement) await document.documentElement.requestFullscreen({ navigationUI: "hide" });
-    await (screen.orientation as LockableOrientation).lock?.("landscape");
+    const orientation = screen.orientation as LockableOrientation;
+    if (!orientation.lock) return false;
+    await orientation.lock("landscape");
+    return true;
   } catch {
-    // refused or unsupported: whatever worked stays, and the layout follows the phone anyway
+    // refused or unsupported: whatever worked stays
+    return false;
   }
 }
+
+/** Whether the page runs as an app installed on the home screen (no browser bars). */
+export const installedQuery = "(display-mode: standalone), (display-mode: fullscreen)";
 
 export function leaveFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});

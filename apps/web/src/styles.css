@@ -303,8 +303,11 @@ body:has(.game-page.touch) { overflow: hidden; touch-action: none; }
 body:has(.game-menu) .sound-controls { display: none; }
 
 .game-page.touch {
+  /* the page's own width and height units: the screen's, swapped below when the page is turned by hand */
+  --vw: 1vw;
+  --vh: 1dvh;
   /* on a short screen the d-pad gives way before the board does */
-  --dpad: min(42vw, 176px, 25dvh);
+  --dpad: min(calc(42 * var(--vw)), 176px, calc(25 * var(--vh)));
   --btn: 66px;
   --bomb: 84px;
   height: 100vh;
@@ -327,7 +330,10 @@ body:has(.game-menu) .sound-controls { display: none; }
 .touch .match-timer { flex: none; font-size: 15px; padding: 5px 8px; }
 .touch :is(.game-top, .game-menu) > button { flex: none; padding: 8px 10px; }
 /* the menu opens under the title bar, its ⚙️ still in reach to close it */
-.touch .game-menu .settings-panel { position: fixed; top: 56px; right: 8px; width: min(300px, calc(100vw - 16px)); max-height: calc(100dvh - 64px); overflow-y: auto; touch-action: pan-y; }
+.touch .game-menu .settings-panel {
+  position: fixed; top: 56px; right: 8px; width: min(300px, calc(100 * var(--vw) - 16px)); max-height: calc(100 * var(--vh) - 64px);
+  overflow-y: auto; touch-action: pan-y;
+}
 .menu-channels { display: flex; gap: 6px; }
 .menu-channels button { flex: 1; justify-content: center; }
 .game-menu button.leave { background: #4a1f28 !important; color: #ffb3bd !important; }
@@ -359,35 +365,54 @@ body:has(.game-menu) .sound-controls { display: none; }
 
 .touch .touch-controls { grid-area: controls; max-width: none; padding: 0 14px 4px; }
 
-/* sideways: players and d-pad on the left, the board at full height, title bar and buttons on the right */
-@media (orientation: landscape) {
-  .game-page.touch {
-    /* narrow enough that the board is held back by the screen's height, not by the sides */
-    --side: clamp(140px, 20vw, 240px);
-    --dpad: min(var(--side), 40vh, 160px);
-    --btn: 60px;
-    --bomb: 76px;
-    padding: 8px 10px max(8px, env(safe-area-inset-bottom));
-    column-gap: 12px;
-    grid-template-columns: var(--side) minmax(0, 1fr) var(--side);
-    grid-template-rows: auto minmax(0, 1fr);
-    grid-template-areas: "hud stage top" "dpad stage buttons";
-  }
-  .touch .game-top { flex-wrap: wrap; justify-content: flex-end; align-content: flex-start; padding: 0; }
-  .touch .game-top h1 { flex-basis: 100%; text-align: right; }
-  .touch .hud { flex-direction: column; padding: 0; }
-  .touch .hud-player { flex: none; }
-  .touch .stage-area { align-items: center; }
-  .touch .touch-controls { display: contents; }
-  .touch .touch-dpad { grid-area: dpad; align-self: end; justify-self: center; }
-  .touch .touch-buttons { grid-area: buttons; align-self: end; justify-self: center; }
-  /* the menu goes over the board in two columns, so it fits the short screen */
-  .touch .game-menu .settings-panel {
-    top: 8px; right: calc(var(--side) + 22px); width: min(460px, calc(100vw - 2 * var(--side) - 44px)); max-height: calc(100dvh - 16px);
-    display: grid; grid-template-columns: 1fr 1fr; align-items: center;
-  }
-  .touch .menu-channels { grid-column: 1 / -1; }
-  .touch .game-menu button.leave { grid-column: -2; }
+/* sideways (the phone turned, or the page turned by hand): players and d-pad on the left, the board at
+   full height, title bar and buttons on the right */
+.game-page.touch.sideways {
+  /* narrow enough that the board is held back by the screen's height, not by the sides */
+  --side: clamp(124px, calc(18 * var(--vw)), 240px);
+  --dpad: min(var(--side), calc(40 * var(--vh)), 160px);
+  /* the buttons share the side column with their gap */
+  --btn: min(60px, calc((var(--side) - 10px) * 0.44));
+  --bomb: min(76px, calc((var(--side) - 10px) * 0.56));
+  padding: 8px 10px max(8px, env(safe-area-inset-bottom));
+  column-gap: 12px;
+  grid-template-columns: var(--side) minmax(0, 1fr) var(--side);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "hud stage top" "dpad stage buttons";
+}
+.sideways .game-top { flex-wrap: wrap; justify-content: flex-end; align-content: flex-start; padding: 0; }
+.sideways .game-top h1 { flex-basis: 100%; text-align: right; }
+.sideways .hud { flex-direction: column; padding: 0; }
+.sideways .hud-player { flex: none; }
+.sideways .stage-area { align-items: center; }
+.sideways .touch-controls { display: contents; }
+.sideways .touch-dpad { grid-area: dpad; align-self: end; justify-self: center; }
+.sideways .touch-buttons { grid-area: buttons; align-self: end; justify-self: center; }
+/* the menu goes over the board in two columns, so it fits the short screen */
+.sideways .game-menu .settings-panel {
+  top: 8px; right: calc(var(--side) + 22px); width: min(460px, calc(100 * var(--vw) - 2 * var(--side) - 44px)); max-height: calc(100 * var(--vh) - 16px);
+  display: grid; grid-template-columns: 1fr 1fr; align-items: center;
+}
+.sideways .menu-channels { grid-column: 1 / -1; }
+.sideways .game-menu button.leave { grid-column: -2; }
+
+/*
+ * Turned by hand (iPhones can't lock the screen sideways): the page is laid out as wide as the screen is
+ * tall and rotated a quarter turn clockwise, for a phone held with its top to the left. The camera and the
+ * home bar end up on the page's left and right.
+ */
+.game-page.touch.turned {
+  --vw: 1dvh;
+  --vh: 1vw;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100dvh;
+  height: 100vw;
+  transform-origin: top left;
+  transform: translateX(100vw) rotate(90deg);
+  animation: none;
+  padding: 8px max(10px, env(safe-area-inset-bottom)) 8px max(10px, env(safe-area-inset-top));
 }
 
 /* ---------- motion: short and springy; all of it goes quiet under "reduce motion" ---------- */

@@ -2,8 +2,11 @@ import { useEffect, useRef, type PointerEvent } from "react";
 import { fourWay, type TouchPad } from "./controls";
 import { buzz } from "./haptics";
 
-/** On-screen d-pad and buttons for phones; they write into a TouchPad the game loop reads. */
-export function TouchControls({ pad }: { pad: TouchPad }) {
+/**
+ * On-screen d-pad and buttons for phones; they write into a TouchPad the game loop reads. `turned`: the page
+ * is rotated a quarter turn clockwise (see GameFrame), so a finger's offset on screen is turned back for the d-pad.
+ */
+export function TouchControls({ pad, turned = false }: { pad: TouchPad; turned?: boolean }) {
   /** the d-pad's box, measured once per touch rather than on every move */
   const box = useRef<DOMRect | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -20,7 +23,9 @@ export function TouchControls({ pad }: { pad: TouchPad }) {
 
   const steer = (e: PointerEvent<HTMLDivElement>) => {
     const b = (box.current ??= e.currentTarget.getBoundingClientRect());
-    const dir = fourWay(e.clientX - (b.left + b.width / 2), e.clientY - (b.top + b.height / 2), b.width * 0.12);
+    const x = e.clientX - (b.left + b.width / 2);
+    const y = e.clientY - (b.top + b.height / 2);
+    const dir = turned ? fourWay(y, -x, b.width * 0.12) : fourWay(x, y, b.width * 0.12);
     pad.dx = dir.dx;
     pad.dy = dir.dy;
   };

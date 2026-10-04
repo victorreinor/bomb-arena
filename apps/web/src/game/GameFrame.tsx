@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { TouchPad } from "./controls";
-import { canFullscreen, leaveFullscreen, playSideways, useFullscreen, useMedia } from "./screenMode";
+import { readPref, writePref } from "../config";
+import { canFullscreen, installedQuery, leaveFullscreen, playSideways, useFullscreen, useMedia } from "./screenMode";
 import { ChannelToggles, SettingsFields, usePopover } from "./SoundToggle";
 import { TouchControls } from "./TouchControls";
 
@@ -58,37 +59,85 @@ function DesktopFrame({ title, hint, timer, players, notice, canvasRef, size, ov
 /**
  * Upright: title bar, players in one row, the board edge to edge, the controls under the thumbs.
  * Sideways: players and d-pad on the left, the board at full height, title bar and buttons on the right.
- * The board takes the biggest size that fits what's left (see styles.css, "phones").
+ * The board takes the biggest size that fits what's left (see styles.css, "phones"). Sideways is the
+ * phone turned, or, where the browser can't turn the screen for us, the page turned by hand.
  */
 function PhoneFrame({ title, timer, players, notice, canvasRef, size, overlay, pad, onLeave }: Props) {
   const area = useRef<HTMLDivElement>(null);
   const fit = useFit(area, size);
+  const landscape = useMedia("(orientation: landscape)");
+  const installed = useMedia(installedQuery);
+  /** asked to lie down where the browser can't turn the screen (iPhones): the page itself is rotated */
+  const [turned, setTurned] = useState(false);
+  const [tip, setTip] = useState(false);
+  // once the phone itself is sideways the page needn't be, and turned back upright it stays upright
+  useEffect(() => {
+    if (landscape) setTurned(false);
+  }, [landscape]);
+  const byHand = turned && !landscape;
+
   useEffect(() => {
     // the stylesheet holds the screen still (touch-action), but iPhones pinch-zoom regardless: cancel the gesture itself
     const cancel = (e: Event) => e.preventDefault();
     document.addEventListener("gesturestart", cancel);
     return () => document.removeEventListener("gesturestart", cancel);
   }, []);
+  useEffect(() => {
+    if (!tip) return;
+    const timer = setTimeout(() => setTip(false), TIP_MS);
+    return () => clearTimeout(timer);
+  }, [tip]);
+
+  const lieDown = async () => {
+    if (await playSideways()) return;
+    setTurned(true);
+    if (readPref("turnTip")) return; // how to hold the phone is shown once
+    writePref("turnTip", "1");
+    setTip(true);
+  };
+
   return (
-    <div className="game-page touch">
+    <div className={`game-page touch${landscape || byHand ? " sideways" : ""}${byHand ? " turned" : ""}`}>
       <div className="game-top">
         <h1>{title}</h1>
         {timer}
-        <SidewaysButton />
+        <TurnButton
+          landscape={landscape}
+          byHand={byHand}
+          installed={installed}
+          onLieDown={lieDown}
+          onStandUp={() => {
+            setTurned(false);
+            setTip(false);
+          }}
+        />
         <GameMenu onLeave={onLeave} />
       </div>
       <div className="hud">{players}</div>
       <div className="stage-area" ref={area}>
         <div className="stage" style={fit ?? undefined}>
           <canvas ref={canvasRef} />
-          {notice && <div className="stage-notices">{notice}</div>}
+          {(notice || tip) && (
+            <div className="stage-notices">
+              {notice}
+              {tip && (
+                <p className="notice">
+                  Deite o celular com o topo para a esquerda.
+                  {!installed && " Para tirar as barras do Safari: Compartilhar → Adicionar à Tela de Início."}
+                </p>
+              )}
+            </div>
+          )}
           {overlay}
         </div>
       </div>
-      {pad && <TouchControls pad={pad} />}
+      {pad && <TouchControls pad={pad} turned={byHand} />}
     </div>
   );
 }
+
+/** how long the tip on holding a hand-turned phone stays up, in ms */
+const TIP_MS = 7000;
 
 /** The largest size with `size`'s proportions that fits in the element's box, following it as the phone turns. */
 function useFit(ref: RefObject<HTMLElement | null>, size: Size | null): Size | null {
@@ -110,16 +159,36 @@ function useFit(ref: RefObject<HTMLElement | null>, size: Size | null): Size | n
   return fit;
 }
 
-/** Turns the screen sideways and full (where the browser allows it); gone once it is full screen. */
-function SidewaysButton() {
+/**
+ * Upright: lie the game down (the screen locked sideways and full, or the page turned by hand). Turned by
+ * hand: stand it back up. Already sideways: full screen, where there is one to have and it isn't on yet.
+ */
+function TurnButton({ landscape, byHand, installed, onLieDown, onStandUp }: {
+  landscape: boolean;
+  byHand: boolean;
+  installed: boolean;
+  onLieDown: () => void;
+  onStandUp: () => void;
+}) {
   const full = useFullscreen();
-  const sideways = useMedia("(orientation: landscape)");
-  // an app installed on the home screen is already full screen: it only needs turning
-  const installed = useMedia("(display-mode: fullscreen)");
-  if (!canFullscreen || full || (installed && sideways)) return null;
+  if (byHand) {
+    return (
+      <button className="turn-button" onClick={onStandUp} title="Voltar o jogo para a tela em pé">
+        ⟲ Em pé
+      </button>
+    );
+  }
+  if (!landscape) {
+    return (
+      <button className="turn-button" onClick={onLieDown} title="Jogar com o celular deitado">
+        ⟳ Deitar
+      </button>
+    );
+  }
+  if (!canFullscreen || full || installed) return null;
   return (
-    <button className="sideways" onClick={playSideways} title="Jogar com o celular deitado, em tela cheia">
-      {sideways ? "⛶ Tela cheia" : "⟳ Deitar"}
+    <button className="turn-button" onClick={() => void playSideways()} title="Jogar em tela cheia">
+      ⛶ Tela cheia
     </button>
   );
 }
