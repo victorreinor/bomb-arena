@@ -1,5 +1,7 @@
 import {
   TICK_MS,
+  TICK_RATE,
+  TokenBucket,
   createRoom,
   disconnect,
   joinRoom,
@@ -8,10 +10,12 @@ import {
   handleClientMessage,
   randomSeed,
   stepRoom,
+  toSnapshot,
   type ClientMsg,
   type ErrorCode,
   type RoomState,
   type ServerMsg,
+  type Tile,
 } from "@bomberman/engine";
 
 export interface Env {
@@ -21,6 +25,11 @@ export interface Env {
 const MAX_CATCH_UP_STEPS = 5;
 const MAX_MESSAGE_BYTES = 512;
 const PID_PATTERN = /^[A-Za-z0-9_-]{8,40}$/;
+/** per connection: inputs are sent on change, so a real player stays far below this */
+const MESSAGES_PER_SECOND = 40;
+const MESSAGE_BURST = 80;
+/** a client still flooding after this many dropped messages gets disconnected */
+const MAX_DROPPED = 300;
 
 /**
  * One instance per room code. Holds the authoritative room + match state and
@@ -28,10 +37,19 @@ const PID_PATTERN = /^[A-Za-z0-9_-]{8,40}$/;
  * WebSockets are used on purpose: the loop needs to stay alive during a match and
  * the in-memory state would be lost on hibernation.
  */
+interface Session {
+  id: string;
+  /** message rate limit for this connection */
+  bucket: TokenBucket;
+  dropped: number;
+}
+
 export class Room {
   private room: RoomState | null = null;
-  /** socket -> player id */
-  private sessions = new Map<WebSocket, string>();
+  private sessions = new Map<WebSocket, Session>();
+  /** tiles as last broadcast; snapshots only carry tiles when these change (or someone new arrives) */
+  private sentTiles: Tile[] | null = null;
+  private sentRound = -1;
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastTime = 0;
   private acc = 0;
@@ -81,13 +99,14 @@ export class Room {
 
   private attach(ws: WebSocket, id: string) {
     // the same player reconnecting (e.g. a refresh) replaces the stale socket
-    for (const [other, owner] of this.sessions) {
-      if (owner === id) {
+    for (const [other, session] of this.sessions) {
+      if (session.id === id) {
         this.sessions.delete(other);
         this.reject(other, "replaced", "Você entrou nesta sala em outra aba.");
       }
     }
-    this.sessions.set(ws, id);
+    this.sessions.set(ws, { id, bucket: new TokenBucket(MESSAGES_PER_SECOND, MESSAGE_BURST, Date.now()), dropped: 0 });
+    this.sentTiles = null; // the newcomer needs the full board
     ws.addEventListener("message", (e) => this.onMessage(ws, e));
     ws.addEventListener("close", () => this.onClose(ws));
     ws.addEventListener("error", () => this.onClose(ws));
@@ -98,17 +117,24 @@ export class Room {
   }
 
   private onClose(ws: WebSocket) {
-    const id = this.sessions.get(ws);
-    if (id === undefined || !this.room) return;
+    const session = this.sessions.get(ws);
+    if (!session || !this.room) return;
     this.sessions.delete(ws);
-    disconnect(this.room, id);
+    disconnect(this.room, session.id);
     this.dirty = true;
   }
 
   private onMessage(ws: WebSocket, event: MessageEvent) {
-    const id = this.sessions.get(ws);
+    const session = this.sessions.get(ws);
     const room = this.room;
-    if (id === undefined || !room || typeof event.data !== "string" || event.data.length > MAX_MESSAGE_BYTES) return;
+    if (!session || !room || typeof event.data !== "string" || event.data.length > MAX_MESSAGE_BYTES) return;
+    if (!session.bucket.take(Date.now())) {
+      if (++session.dropped > MAX_DROPPED) {
+        this.sessions.delete(ws);
+        this.reject(ws, "bad_request", "Mensagens demais.");
+      }
+      return;
+    }
 
     let msg: ClientMsg;
     try {
@@ -116,7 +142,17 @@ export class Room {
     } catch {
       return;
     }
-    this.dirty = handleClientMessage(room, id, msg, randomSeed) || this.dirty;
+    this.dirty = handleClientMessage(room, session.id, msg, randomSeed) || this.dirty;
+    this.hangUpNonMembers(room);
+  }
+
+  /** Whoever is no longer a member (left, removed...) stops getting updates and is hung up on. */
+  private hangUpNonMembers(room: RoomState) {
+    for (const [ws, session] of this.sessions) {
+      if (room.members.some((m) => m.id === session.id)) continue;
+      this.sessions.delete(ws);
+      ws.close(1000, "left");
+    }
   }
 
   private startLoop() {
@@ -150,12 +186,27 @@ export class Room {
     }
     if (steps === MAX_CATCH_UP_STEPS) this.acc = 0; // we fell behind; drop the backlog instead of spiralling
     // after catching up only the newest state matters; clients interpolate across skipped ticks
-    if (steps > 0 && room.game) this.broadcast({ t: "state", round: room.round, resultsIn: room.resultsTicksLeft, game: room.game });
+    if (steps > 0 && room.game) this.broadcastState(room);
+    if (steps > 0) this.hangUpNonMembers(room);
 
     if (this.dirty) {
       this.dirty = false;
       this.broadcast({ t: "room", room: roomView(room) });
     }
+  }
+
+  private broadcastState(room: RoomState) {
+    const game = room.game!;
+    // once the podium is up and the last flames are out nothing moves: once a second keeps the countdown going
+    const idle = game.phase === "finished" && game.flames.length === 0;
+    if (idle && room.resultsTicksLeft % TICK_RATE !== 0) return;
+    const tilesChanged =
+      this.sentRound !== room.round || !this.sentTiles || game.tiles.some((t, i) => t !== this.sentTiles![i]);
+    if (tilesChanged) {
+      this.sentTiles = [...game.tiles];
+      this.sentRound = room.round;
+    }
+    this.broadcast({ t: "state", round: room.round, resultsIn: room.resultsTicksLeft, game: toSnapshot(game, tilesChanged) });
   }
 
   private send(ws: WebSocket, msg: ServerMsg) {
