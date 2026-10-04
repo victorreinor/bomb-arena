@@ -5,17 +5,30 @@
  * Each sheet is a grid of equal cells (16x16 tiles and items, 16x24 bombers, 20x20 mounts; see the
  * client's sprites.ts), so any of these PNGs can be replaced by hand-drawn art with the same layout
  * without touching game code. The bomber and the mounts are drawn in bomber-art.ts and pet-art.ts.
+ * It also cuts the README's pictures out of these sheets, into .github/readme.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ACCENT, COLOR_CSS } from "../apps/web/src/game/colors";
-import { POWERUP_KINDS, type PowerUpKind } from "../packages/engine/src";
+import { PET_KINDS, POWERUP_KINDS, type PetKind, type PowerUpKind } from "../packages/engine/src";
 import { bomberSheet, emoteSheet } from "./bomber-art";
 import { petSheet } from "./pet-art";
 import { floorSheet } from "./floor-art";
 import { tileSheet } from "./tile-art";
-import { BOMB_LOOKS, BOMB_PULSE_FRAMES, TILE_THEMES, type BombLook } from "../apps/web/src/game/sprites";
-import { Img, ellipse, encodePng, fromAscii, hex, lighten, shade, upscale, type RGBA } from "./png";
+import {
+  BOMB_LOOKS,
+  BOMB_PULSE_FRAMES,
+  BOMBER_EMOTES,
+  BOMBER_FRAMES,
+  BOMBER_H,
+  BOMBER_W,
+  PET_CELL,
+  PET_ICON_COLUMN,
+  TILE_THEMES,
+  type BombLook,
+  type BomberFrame,
+} from "../apps/web/src/game/sprites";
+import { Img, ellipse, encodeApng, encodePng, fromAscii, hex, lighten, shade, upscale, type RGBA } from "./png";
 
 const OUT = join(import.meta.dir, "../apps/web/public/sprites");
 mkdirSync(OUT, { recursive: true });
@@ -212,4 +225,49 @@ COLOR_CSS.forEach((c, i) => {
 
 // -------------------------------------------------------------------- pets
 
-save("pets.png", petSheet());
+const pets = petSheet();
+save("pets.png", pets);
+
+// ------------------------------------------------------------------ README
+
+const README_OUT = join(import.meta.dir, "../.github/readme");
+mkdirSync(README_OUT, { recursive: true });
+
+/** Saves `frames` blown up `k` times into .github/readme: a still PNG, or an APNG looping every `delayMs`. */
+function saveReadme(name: string, k: number, frames: Img[], delayMs = 0) {
+  const big = frames.map((f) => upscale(f, k));
+  writeFileSync(join(README_OUT, name), big.length > 1 ? encodeApng(big, delayMs) : encodePng(big[0]));
+  console.log(`wrote .github/readme/${name} (${big[0].w}x${big[0].h}, ${big.length} frames)`);
+}
+
+/** gap between the critters lined up in one picture, in sprite pixels */
+const LINEUP_GAP = 4;
+/** how high a hopping pet leaves the ground, in sprite pixels */
+const HOP = 2;
+
+/** `cells` side by side, LINEUP_GAP apart. */
+function lineup(cells: Img[]): Img {
+  const out = new Img(cells.reduce((w, c) => w + c.w + LINEUP_GAP, -LINEUP_GAP), Math.max(...cells.map((c) => c.h)));
+  cells.reduce((x, c) => (out.blit(c, x, out.h - c.h), x + c.w + LINEUP_GAP), 0);
+  return out;
+}
+
+/** A pet facing the viewer, `lift` pixels off the ground. */
+function petIcon(kind: PetKind, lift: number): Img {
+  const out = new Img(PET_CELL, PET_CELL + HOP);
+  out.blit(pets.crop(PET_ICON_COLUMN * PET_CELL, PET_KINDS.indexOf(kind) * PET_CELL, PET_CELL, PET_CELL), 0, HOP - lift);
+  return out;
+}
+
+// the title: the white bomber walking towards you, and the frog hopping on the spot
+const white = bomberSheet(COLOR_CSS[0]);
+const walking = (frame: BomberFrame) => white.crop(BOMBER_FRAMES.indexOf(frame) * BOMBER_W, 0, BOMBER_W, BOMBER_H);
+saveReadme("bomber.png", 4, (["walkA", "idle", "walkB", "idle"] as const).map(walking), 150);
+saveReadme("pet.png", 4, [petIcon("jumper", 0), petIcon("jumper", HOP)], 260);
+
+// the four colours cheering on the podium, and the four pets, each hopping out of step with the next
+const cheer = (color: number, hop: number) =>
+  emoteSheet(COLOR_CSS[color]).crop(BOMBER_EMOTES.indexOf(hop ? "happyB" : "happyA") * BOMBER_W, 0, BOMBER_W, BOMBER_H);
+saveReadme("crew.png", 4, [0, 1].map((t) => lineup(COLOR_CSS.map((_, i) => cheer(i, (i + t) % 2)))), 300);
+saveReadme("pets.png", 4, [0, 1].map((t) => lineup(PET_KINDS.map((kind, i) => petIcon(kind, (i + t) % 2 ? HOP : 0)))), 300);
+saveReadme("items.png", 3, [powerups]);

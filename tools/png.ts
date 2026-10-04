@@ -25,6 +25,13 @@ export class Img {
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) this.set(x + i, y + j, c);
   }
 
+  /** the w×h piece of this image whose top-left is (x, y) */
+  crop(x: number, y: number, w: number, h: number): Img {
+    const out = new Img(w, h);
+    for (let j = 0; j < h; j++) out.data.set(this.data.subarray(((y + j) * this.w + x) * 4, ((y + j) * this.w + x + w) * 4), j * w * 4);
+    return out;
+  }
+
   /** copy `src` onto this image at (dx, dy); transparent pixels are skipped */
   blit(src: Img, dx: number, dy: number) {
     for (let y = 0; y < src.h; y++) {
@@ -116,24 +123,62 @@ function chunk(type: string, data: Uint8Array): Uint8Array {
   return out;
 }
 
-export function encodePng(img: Img): Uint8Array {
+/** The image data of `img`: unfiltered RGBA rows, deflated. */
+function pixels(img: Img): Uint8Array {
   const raw = new Uint8Array((img.w * 4 + 1) * img.h);
   for (let y = 0; y < img.h; y++) {
     raw[y * (img.w * 4 + 1)] = 0; // filter: none
     raw.set(img.data.subarray(y * img.w * 4, (y + 1) * img.w * 4), y * (img.w * 4 + 1) + 1);
   }
+  return deflateSync(raw);
+}
+
+/** The signature and the IHDR chunk of a w×h RGBA image. */
+function header(w: number, h: number): Uint8Array[] {
   const ihdr = new Uint8Array(13);
   const v = new DataView(ihdr.buffer);
-  v.setUint32(0, img.w);
-  v.setUint32(4, img.h);
+  v.setUint32(0, w);
+  v.setUint32(4, h);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 6; // RGBA
-  const parts = [
-    Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]),
-    chunk("IHDR", ihdr),
-    chunk("IDAT", deflateSync(raw)),
-    chunk("IEND", new Uint8Array(0)),
-  ];
+  return [Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr)];
+}
+
+export function encodePng(img: Img): Uint8Array {
+  return concat([...header(img.w, img.h), chunk("IDAT", pixels(img)), chunk("IEND", new Uint8Array(0))]);
+}
+
+/** An animated PNG (APNG) looping over `frames` forever, each shown for `delayMs`. All frames are the first one's size. */
+export function encodeApng(frames: Img[], delayMs: number): Uint8Array {
+  const actl = new Uint8Array(8);
+  new DataView(actl.buffer).setUint32(0, frames.length); // then 0 plays: loop forever
+  const parts = [...header(frames[0].w, frames[0].h), chunk("acTL", actl)];
+  let seq = 0;
+  frames.forEach((img, i) => {
+    const fctl = new Uint8Array(26);
+    const v = new DataView(fctl.buffer);
+    v.setUint32(0, seq++);
+    v.setUint32(4, img.w);
+    v.setUint32(8, img.h);
+    // no offset; the delay is delayMs/1000 s; dispose and blend 0: each frame replaces the whole picture
+    v.setUint16(20, delayMs);
+    v.setUint16(22, 1000);
+    parts.push(chunk("fcTL", fctl));
+    const data = pixels(img);
+    if (i === 0) {
+      parts.push(chunk("IDAT", data));
+      return;
+    }
+    const fdat = new Uint8Array(4 + data.length);
+    new DataView(fdat.buffer).setUint32(0, seq++);
+    fdat.set(data, 4);
+    parts.push(chunk("fdAT", fdat));
+  });
+  parts.push(chunk("IEND", new Uint8Array(0)));
+  return concat(parts);
+}
+
+function concat(parts: Uint8Array[]): Uint8Array {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let o = 0;
   for (const p of parts) {
