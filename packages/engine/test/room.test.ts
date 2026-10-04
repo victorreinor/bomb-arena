@@ -154,7 +154,7 @@ describe("match flow", () => {
   test("inputs are clamped and bomb presses are consumed after one tick", () => {
     const room = startedRoom(2);
     setInput(room, "u1", { dx: 99, dy: -1, bomb: true });
-    expect(room.inputs.u1).toEqual({ dx: 0, dy: -1, bomb: true, action: false });
+    expect(room.inputs.u1).toEqual({ dx: 0, dy: -1, bomb: true, action: false, pet: false });
     stepRoom(room);
     expect(room.game!.bombs).toHaveLength(1);
     expect(room.inputs.u1.bomb).toBe(false);

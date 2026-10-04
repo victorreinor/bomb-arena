@@ -2,50 +2,29 @@ import { describe, expect, test } from "bun:test";
 import {
   AUTO_BOMB_INTERVAL_TICKS,
   BOMB_FUSE_TICKS,
+  BOUNCE_TICKS,
   DISEASE_TICKS,
   FLIGHT_TICKS,
   INVULN_TICKS,
   MAX_RANGE,
   REMOTE_FUSE_TICKS,
   START_RANGE,
+  STUN_TICKS,
   killPlayer,
   playerSpeed,
   step,
-  type Bomb,
   type GameState,
   type PowerUpKind,
 } from "../src";
-import { makeGame, run } from "./helpers";
+import { corridor, makeGame, run, testBomb } from "./helpers";
 
 
-/** A bomb dropped straight into the state (fuse long enough not to interfere). */
-function bombAt(s: GameState, x: number, y: number, owner = "p2", extra: Partial<Bomb> = {}): Bomb {
-  const bomb: Bomb = {
-    id: s.nextBombId++,
-    owner,
-    x,
-    y,
-    ticksLeft: 200,
-    range: 2,
-    remote: false,
-    power: false,
-    slide: null,
-    slideTimer: 0,
-    held: null,
-    flight: null,
-    ...extra,
-  };
-  s.bombs.push(bomb);
-  return bomb;
-}
-
-const corridor = (inner: string) => ["#".repeat(inner.length + 2), `#${inner}#`, "#".repeat(inner.length + 2)];
 
 describe("kick", () => {
   test("walking into a bomb sets it sliding until it hits a player", () => {
     const s = makeGame(corridor("1..........2"));
     s.players[0].kick = true;
-    const bomb = bombAt(s, 3, 1);
+    const bomb = testBomb(s, 3, 1);
     run(s, 60, { p1: { dx: 1 } });
     expect(bomb.x).toBe(11); // p2 stands on tile 12
     expect(bomb.slide).toBeNull();
@@ -53,7 +32,7 @@ describe("kick", () => {
 
   test("without the boots the bomb stays put", () => {
     const s = makeGame(corridor("1..........2"));
-    const bomb = bombAt(s, 3, 1);
+    const bomb = testBomb(s, 3, 1);
     run(s, 40, { p1: { dx: 1 } });
     expect(bomb.x).toBe(3);
   });
@@ -61,14 +40,14 @@ describe("kick", () => {
   test("a kicked bomb stops in front of a wall or another bomb", () => {
     const s = makeGame(corridor("1.....#...2"));
     s.players[0].kick = true;
-    const bomb = bombAt(s, 3, 1);
+    const bomb = testBomb(s, 3, 1);
     run(s, 60, { p1: { dx: 1 } });
     expect(bomb.x).toBe(6);
 
     const t = makeGame(corridor("1..........2"));
     t.players[0].kick = true;
-    const first = bombAt(t, 3, 1);
-    const blocker = bombAt(t, 8, 1);
+    const first = testBomb(t, 3, 1);
+    const blocker = testBomb(t, 8, 1);
     run(t, 60, { p1: { dx: 1 } });
     expect(first.x).toBe(7);
     expect(blocker.x).toBe(8);
@@ -77,7 +56,7 @@ describe("kick", () => {
   test("a kicked bomb slides into fire and goes off", () => {
     const s = makeGame(corridor("1..........2"));
     s.players[0].kick = true;
-    bombAt(s, 3, 1);
+    testBomb(s, 3, 1);
     s.flames.push({ x: 6, y: 1, arms: 0, ticksLeft: 60 });
     run(s, 30, { p1: { dx: 1 } });
     expect(s.bombs).toHaveLength(0);
@@ -97,7 +76,7 @@ describe("punch", () => {
     const s = makeGame(corridor("1b++..2".replace("b", ".")));
     s.players[0].punch = true;
     s.players[0].facing = "right";
-    const bomb = bombAt(s, 2, 1);
+    const bomb = testBomb(s, 2, 1);
     step(s, { p1: { action: true } });
     expect(bomb.flight).not.toBeNull();
     expect(bomb.flight!.toX).toBe(5);
@@ -110,7 +89,7 @@ describe("punch", () => {
     const s = makeGame(corridor("1.+.+.2"));
     s.players[0].punch = true;
     s.players[0].facing = "right";
-    const bomb = bombAt(s, 2, 1);
+    const bomb = testBomb(s, 2, 1);
     step(s, { p1: { action: true } });
     expect(bomb.flight!.toX).toBe(6); // tile 5 is soft; 6 is free
   });
@@ -120,7 +99,7 @@ describe("punch", () => {
     s.players[0].punch = true;
     s.players[0].facing = "left";
     s.players[0].x = 2.5;
-    const bomb = bombAt(s, 1, 1);
+    const bomb = testBomb(s, 1, 1);
     step(s, { p1: { action: true } });
     const w = s.width;
     expect(bomb.flight!.toX).toBe(w - 2); // 1 - 3 wraps to the far side of the arena
@@ -132,7 +111,7 @@ describe("punch", () => {
     const s = makeGame(corridor("1..........2"));
     s.players[0].punch = true;
     s.players[0].facing = "right";
-    const bomb = bombAt(s, 2, 1, "p2", { ticksLeft: 1 });
+    const bomb = testBomb(s, 2, 1, { owner: "p2", ticksLeft: 1 });
     step(s, { p1: { action: true } });
     run(s, FLIGHT_TICKS - 3);
     expect(bomb.flight).not.toBeNull();
@@ -144,7 +123,7 @@ describe("punch", () => {
   test("needs the punch glove", () => {
     const s = makeGame(corridor("1.....2"));
     s.players[0].facing = "right";
-    const bomb = bombAt(s, 2, 1);
+    const bomb = testBomb(s, 2, 1);
     step(s, { p1: { action: true } });
     expect(bomb.flight).toBeNull();
   });
@@ -175,6 +154,7 @@ describe("glove", () => {
     const p = s.players[0];
     p.glove = true;
     p.bombsMax = 3;
+    p.facing = "right"; // along the corridor: straight down there is nowhere to land
     step(s, { p1: { bomb: true } });
     step(s, { p1: { action: true } });
     step(s, { p1: { bomb: true } });
@@ -199,6 +179,60 @@ describe("glove", () => {
     killPlayer(s, s.players[0]);
     expect(s.bombs[0].held).toBeNull();
     expect(s.players[0].holding).toBeNull();
+  });
+});
+
+describe("bombs landing on someone", () => {
+  /** p1 punches a bomb from (2,1) to (5,1); p2 is put wherever the test needs. */
+  function punchAt(p2x: number) {
+    const s = makeGame(corridor("1.........2"));
+    const [p1, p2] = s.players;
+    p1.punch = true;
+    p1.facing = "right";
+    p2.x = p2x;
+    const bomb = testBomb(s, 2, 1, { owner: "p1" });
+    step(s, { p1: { action: true } });
+    return { s, p2, bomb };
+  }
+
+  test("a bomb landing on a head bounces on to the next tile and leaves them seeing stars", () => {
+    const { s, p2, bomb } = punchAt(5.5);
+    run(s, FLIGHT_TICKS);
+    expect(p2.stunned).toBeGreaterThan(0);
+    expect(bomb.flight).toMatchObject({ toX: 6, toY: 1 });
+    run(s, BOUNCE_TICKS);
+    expect(bomb.flight).toBeNull();
+    expect(bomb.x).toBe(6);
+  });
+
+  test("while dizzy the controls do nothing; afterwards they work again", () => {
+    const { s, p2 } = punchAt(5.5);
+    run(s, FLIGHT_TICKS);
+    run(s, STUN_TICKS - 1, { p2: { dx: -1, bomb: true } });
+    expect(p2.x).toBe(5.5);
+    expect(s.bombs).toHaveLength(1);
+    run(s, 5, { p2: { dx: -1 } });
+    expect(p2.x).toBeLessThan(5.5);
+  });
+
+  test("someone only brushing the landing tile isn't hit, and can walk off the bomb", () => {
+    const { s, p2, bomb } = punchAt(4.7); // centre on (4,1), shoulder over (5,1)
+    run(s, FLIGHT_TICKS);
+    expect(p2.stunned).toBe(0);
+    expect(bomb.x).toBe(5);
+    run(s, 10, { p2: { dx: -1 } });
+    expect(p2.x).toBeLessThan(4.5);
+  });
+
+  test("a dizzy carrier drops the bomb they hold", () => {
+    const { s, p2 } = punchAt(5.5);
+    p2.glove = true;
+    step(s, { p2: { bomb: true } });
+    step(s, { p2: { action: true } });
+    expect(p2.holding).not.toBeNull();
+    run(s, FLIGHT_TICKS);
+    expect(p2.holding).toBeNull();
+    expect(s.bombs.filter((b) => b.owner === "p2")).toMatchObject([{ x: 5, y: 1, held: null }]);
   });
 });
 
@@ -237,7 +271,7 @@ describe("pass-through abilities", () => {
   test("bomb pass walks through bombs", () => {
     const s = makeGame(corridor("1..........2"));
     s.players[0].bombPass = true;
-    bombAt(s, 3, 1);
+    testBomb(s, 3, 1);
     run(s, 40, { p1: { dx: 1 } });
     expect(s.players[0].x).toBeGreaterThan(5);
   });

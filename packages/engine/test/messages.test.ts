@@ -9,6 +9,7 @@ import {
   type ClientMsg,
   type RoomState,
 } from "../src";
+import { testBomb } from "./helpers";
 
 /** A started 2-player match on a plain corridor, driven only through client messages. */
 function match(): RoomState {
@@ -27,7 +28,7 @@ const send = (room: RoomState, msg: ClientMsg, id = "u1") => handleClientMessage
 const tick = (room: RoomState, n = 1) => {
   for (let i = 0; i < n; i++) stepRoom(room);
 };
-const idle = { t: "input", dx: 0, dy: 0, bomb: false, action: false } as const;
+const idle = { t: "input", dx: 0, dy: 0, bomb: false, action: false, pet: false } as const;
 
 describe("client messages reach the game", () => {
   test("the action button is delivered (remote detonation online)", () => {
@@ -84,10 +85,7 @@ describe("client messages reach the game", () => {
     const g = room.game!;
     g.players[0].punch = true;
     g.players[0].facing = "right";
-    g.bombs.push({
-      id: g.nextBombId++, owner: "u2", x: 2, y: 1, ticksLeft: 200, range: 2, remote: false, power: false,
-      slide: null, slideTimer: 0, held: null, flight: null,
-    });
+    testBomb(g, 2, 1, { owner: "u2" });
     send(room, { ...idle, action: true });
     tick(room);
     expect(g.bombs[0].flight).not.toBeNull();
@@ -109,6 +107,6 @@ describe("client messages reach the game", () => {
     expect(handleClientMessage(room, "u1", { t: "map", mapId: "maze" }, () => 1)).toBe(true);
     expect(handleClientMessage(room, "u1", { t: "map", mapId: "nope" }, () => 1)).toBe(false);
     expect(handleClientMessage(room, "u1", { t: "capacity", capacity: 3 }, () => 1)).toBe(true);
-    expect(handleClientMessage(room, "u1", { t: "input", dx: 1, dy: 0, bomb: false, action: false }, () => 1)).toBe(false);
+    expect(handleClientMessage(room, "u1", { t: "input", dx: 1, dy: 0, bomb: false, action: false, pet: false }, () => 1)).toBe(false);
   });
 });

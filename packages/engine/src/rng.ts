@@ -7,6 +7,11 @@ export function nextRandom(state: { rng: number }): number {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
+/** One element of a (non-empty) list, drawn with this generator. */
+export function pickRandom<T>(state: { rng: number }, list: readonly T[]): T {
+  return list[Math.floor(nextRandom(state) * list.length)];
+}
+
 /** A fresh random 32-bit seed for a new match. */
 export function randomSeed(): number {
   return (Math.random() * 2 ** 32) >>> 0;

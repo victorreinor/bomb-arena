@@ -82,6 +82,8 @@ export const QUADRANTS: MapDef = {
 };
 
 export const MAPS: MapDef[] = [CLASSIC, OPEN_FIELD, MAZE, QUADRANTS];
+export const MAP_IDS = ["classic", "open", "maze", "quadrants"] as const;
+export type MapId = (typeof MAP_IDS)[number];
 
 export function getMap(id: string): MapDef {
   return MAPS.find((m) => m.id === id) ?? CLASSIC;

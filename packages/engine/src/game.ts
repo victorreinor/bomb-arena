@@ -2,16 +2,27 @@ import {
   AUTO_BOMB_INTERVAL_TICKS,
   BASE_SPEED,
   BOMB_FUSE_TICKS,
+  BOUNCE_TICKS,
+  DASH_FACTOR,
+  DASH_TICKS,
   DISEASE_TICKS,
+  FALL_INTERVAL_TICKS,
   FAST_FACTOR,
   FLAME_TICKS,
   FLIGHT_TICKS,
+  GHOST_BOMB_RANGE,
+  GHOST_MOVE_TICKS,
+  GHOST_THROW_COOLDOWN_TICKS,
   INVULN_TICKS,
+  JUMP_TICKS,
   KICK_INTERVAL_TICKS,
   MAX_BOMBS,
   MAX_LINE_CHARGES,
   MAX_RANGE,
   MAX_SPEED_LEVEL,
+  MAX_STEP_TILES,
+  PET_COOLDOWN_TICKS,
+  PET_KICK_INTERVAL_TICKS,
   PLAYER_RADIUS,
   POWERUP_DROP_CHANCE,
   POWERUP_WEIGHTS,
@@ -20,16 +31,18 @@ import {
   SPEED_STEP,
   START_BOMBS,
   START_RANGE,
+  STUN_TICKS,
   THROW_DISTANCE,
   TICK_RATE,
 } from "./constants";
 import { SPAWN_ORDER } from "./maps";
-import { nextRandom } from "./rng";
+import { nextRandom, pickRandom } from "./rng";
 import {
   ABILITY_FIELDS,
   BLAST_DIRS,
   DIR_VEC,
   DISEASE_KINDS,
+  PET_KINDS,
   TILE,
   dirFrom,
   isAbility,
@@ -37,6 +50,7 @@ import {
   type CreateGameOptions,
   type Dir,
   type GameState,
+  type Input,
   type Inputs,
   type Player,
   type PowerUpKind,
@@ -49,6 +63,17 @@ const EPS = 1e-6;
 export function tileAt(state: GameState, x: number, y: number): Tile {
   if (x < 0 || y < 0 || x >= state.width || y >= state.height) return TILE.HARD;
   return state.tiles[y * state.width + x];
+}
+
+/** Cache for geometry that depends only on the board size. */
+function bySize<V>(cache: Map<number, V>, width: number, height: number, build: () => V): V {
+  const key = width * 1000 + height;
+  let value = cache.get(key);
+  if (value === undefined) {
+    value = build();
+    cache.set(key, value);
+  }
+  return value;
 }
 
 /** Wrap a coordinate round the arena (thrown bombs leave one edge and come back on the other). */
@@ -66,7 +91,7 @@ function burnFlames(state: GameState) {
 }
 
 export function createGame(opts: CreateGameOptions): GameState {
-  const { map, players, seed } = opts;
+  const { map, players, seed, revenge = false, timeLimitTicks = null } = opts;
   const height = map.rows.length;
   const width = map.rows[0].length;
   const state: GameState = {
@@ -83,6 +108,9 @@ export function createGame(opts: CreateGameOptions): GameState {
     nextBombId: 1,
     rng: seed >>> 0,
     mapId: map.id,
+    revenge,
+    timeLeft: timeLimitTicks,
+    fallen: 0,
   };
 
   const spawns: { x: number; y: number }[] = [];
@@ -124,10 +152,14 @@ export function createGame(opts: CreateGameOptions): GameState {
       powerBomb: false,
       vest: false,
       invuln: 0,
+      stunned: 0,
       lineCharges: 0,
       disease: null,
       holding: null,
       diedAt: null,
+      pet: null,
+      jump: null,
+      ghost: null,
     });
   });
 
@@ -157,11 +189,24 @@ export function killPlayer(state: GameState, p: Player) {
   p.diedAt = state.tick;
   p.moving = false;
   p.disease = null;
-  if (p.holding !== null) {
-    const bomb = state.bombs.find((b) => b.id === p.holding);
-    if (bomb) bomb.held = null;
-    p.holding = null;
+  p.pet = null;
+  p.jump = null;
+  p.ghost = null;
+  dropHeld(state, p);
+}
+
+/** A carried bomb falls at its carrier's feet (they can step off it). Returns that bomb, if any. */
+function dropHeld(state: GameState, p: Player): Bomb | undefined {
+  if (p.holding === null) return undefined;
+  const bomb = state.bombs.find((b) => b.id === p.holding);
+  if (bomb) {
+    bomb.held = null;
+    bomb.x = Math.floor(p.x);
+    bomb.y = Math.floor(p.y);
+    p.passing.push(bomb.id);
   }
+  p.holding = null;
+  return bomb;
 }
 
 export function step(state: GameState, inputs: Inputs = {}): void {
@@ -172,25 +217,50 @@ export function step(state: GameState, inputs: Inputs = {}): void {
   }
 
   for (const p of state.players) {
-    if (!p.alive) continue;
+    if (!p.alive) {
+      if (p.ghost) stepGhost(state, p, inputs[p.id]);
+      continue;
+    }
     if (p.invuln > 0) p.invuln--;
     if (p.disease && --p.disease.ticksLeft <= 0) p.disease = null;
+    if (p.pet && p.pet.cooldown > 0) p.pet.cooldown--;
+    if (p.jump) {
+      advanceJump(state, p); // nothing else happens in mid-air
+      continue;
+    }
+    if (p.stunned > 0) {
+      p.stunned--; // seeing stars: the controls do nothing
+      continue;
+    }
 
     const input = inputs[p.id];
     const flip = p.disease?.kind === "reverse" ? -1 : 1;
     const dx = Math.sign(input?.dx ?? 0) * flip;
     const dy = Math.sign(input?.dy ?? 0) * flip;
-    p.facing = dirFrom(dx, dy) ?? p.facing;
+    const dashing = (p.pet?.dashTicks ?? 0) > 0;
+    if (!dashing) p.facing = dirFrom(dx, dy) ?? p.facing;
 
     if (p.disease?.kind === "autoBomb" && state.tick % AUTO_BOMB_INTERVAL_TICKS === 0) placeBomb(state, p);
     if (input?.action) doAction(state, p);
     if (input?.bomb) placeBomb(state, p);
-    movePlayer(state, p, dx, dy);
+    if (input?.pet) usePet(state, p);
+    if (p.jump) continue; // just took off
+
+    if (p.pet && p.pet.dashTicks > 0) {
+      // the runner charges straight ahead, ignoring the controls, until it hits something
+      p.pet.dashTicks--;
+      const d = DIR_VEC[p.facing];
+      movePlayer(state, p, d.dx, d.dy, DASH_FACTOR);
+      if (!p.moving) p.pet.dashTicks = 0;
+    } else {
+      movePlayer(state, p, dx, dy);
+    }
     updatePassing(state, p);
   }
 
   updateBombs(state);
   burnFlames(state);
+  suddenDeath(state);
 
   for (const b of state.bombs) b.ticksLeft--;
   for (let due = state.bombs.find((b) => b.ticksLeft <= 0); due; due = state.bombs.find((b) => b.ticksLeft <= 0)) {
@@ -198,19 +268,25 @@ export function step(state: GameState, inputs: Inputs = {}): void {
   }
 
   for (const p of state.players) {
-    if (!p.alive) continue;
+    if (!p.alive || p.jump) continue; // in mid-air: flames and items pass underneath
     const tx = Math.floor(p.x);
     const ty = Math.floor(p.y);
     if (p.invuln === 0 && flameAt(state, tx, ty)) {
-      if (!p.vest) {
-        killPlayer(state, p);
+      // the mount takes the hit first, then the vest; otherwise it's over
+      if (p.pet) {
+        p.pet = null;
+        p.invuln = INVULN_TICKS;
+      } else if (p.vest) {
+        p.vest = false;
+        p.invuln = INVULN_TICKS;
+      } else {
+        eliminate(state, p);
         continue;
       }
-      p.vest = false;
-      p.invuln = INVULN_TICKS;
     }
     const pu = state.powerUps.findIndex((u) => u.x === tx && u.y === ty);
-    if (pu >= 0) {
+    // riders leave eggs on the floor for someone else
+    if (pu >= 0 && !(state.powerUps[pu].kind === "egg" && p.pet)) {
       applyPowerUp(state, p, state.powerUps[pu].kind);
       state.powerUps.splice(pu, 1);
     }
@@ -223,6 +299,69 @@ export function step(state: GameState, inputs: Inputs = {}): void {
     if (alive.length <= 1) {
       state.phase = "finished";
       state.winner = alive[0]?.id ?? null;
+    }
+  }
+}
+
+/** Killed in play (blast or falling block): in revenge mode they come back as a ghost on the wall. */
+function eliminate(state: GameState, p: Player) {
+  killPlayer(state, p);
+  if (state.revenge) p.ghost = { pos: nearestBorderIndex(state, p.x, p.y), moveTimer: 0, cooldown: GHOST_THROW_COOLDOWN_TICKS };
+}
+
+// ------------------------------------------------------------ sudden death
+
+const spiralCache = new Map<number, number[]>();
+
+/** Inner cells (tile indices) from the outside in, clockwise from the top-left: the order blocks fall in. */
+export function fallOrder(width: number, height: number): number[] {
+  return bySize(spiralCache, width, height, () => {
+    const order: number[] = [];
+    let [left, top, right, bottom] = [1, 1, width - 2, height - 2];
+    while (left <= right && top <= bottom) {
+      for (let x = left; x <= right; x++) order.push(top * width + x);
+      for (let y = top + 1; y <= bottom; y++) order.push(y * width + right);
+      if (top < bottom) for (let x = right - 1; x >= left; x--) order.push(bottom * width + x);
+      if (left < right) for (let y = bottom - 1; y > top; y--) order.push(y * width + left);
+      [left, top, right, bottom] = [left + 1, top + 1, right - 1, bottom - 1];
+    }
+    return order;
+  });
+}
+
+/** Counts the match clock down; once it hits zero, blocks drop one by one and crush what is underneath. */
+function suddenDeath(state: GameState) {
+  if (state.timeLeft === null) return;
+  if (state.timeLeft > 0) {
+    state.timeLeft--;
+    return;
+  }
+  if (state.tick % FALL_INTERVAL_TICKS !== 0) return;
+  const order = fallOrder(state.width, state.height);
+  if (state.fallen >= order.length) return;
+  // skip cells that are already stone so every drop lands somewhere new
+  while (state.fallen < order.length && state.tiles[order[state.fallen]] === TILE.HARD) state.fallen++;
+  if (state.fallen >= order.length) return;
+  const i = order[state.fallen++];
+  const x = i % state.width;
+  const y = Math.floor(i / state.width);
+  state.tiles[i] = TILE.HARD;
+  const crushed = bombAt(state, x, y);
+  if (crushed) {
+    const owner = state.players.find((p) => p.id === crushed.owner);
+    if (owner) owner.bombsActive = Math.max(0, owner.bombsActive - 1);
+    state.bombs = state.bombs.filter((o) => o !== crushed);
+  }
+  state.powerUps = state.powerUps.filter((u) => u.x !== x || u.y !== y);
+  state.flames = state.flames.filter((f) => f.x !== x || f.y !== y);
+  for (const p of state.players) {
+    if (!p.alive || !overlapsTile(p.x, p.y, x, y)) continue;
+    if (Math.floor(p.x) === x && Math.floor(p.y) === y) {
+      eliminate(state, p); // nothing saves you from a falling block: not the pet, not the vest
+    } else {
+      // brushing the cell from the next one: nudge back to the middle so they can still move
+      p.x = Math.floor(p.x) + 0.5;
+      p.y = Math.floor(p.y) + 0.5;
     }
   }
 }
@@ -256,8 +395,11 @@ function applyPowerUp(state: GameState, p: Player, kind: PowerUpKind) {
     case "line":
       p.lineCharges = Math.min(MAX_LINE_CHARGES, p.lineCharges + 1);
       break;
+    case "egg":
+      p.pet = { kind: pickRandom(state, PET_KINDS), cooldown: 0, dashTicks: 0 };
+      break;
     case "skull": {
-      const kindOfCurse = DISEASE_KINDS[Math.floor(nextRandom(state) * DISEASE_KINDS.length)];
+      const kindOfCurse = pickRandom(state, DISEASE_KINDS);
       p.disease = { kind: kindOfCurse, ticksLeft: DISEASE_TICKS };
       break;
     }
@@ -267,7 +409,7 @@ function applyPowerUp(state: GameState, p: Player, kind: PowerUpKind) {
 // ---------------------------------------------------------------- bombs
 
 /** A bomb that stands on a tile and blocks it (not one in the air or in someone's hands). */
-function bombAt(state: GameState, x: number, y: number): Bomb | undefined {
+export function bombAt(state: GameState, x: number, y: number): Bomb | undefined {
   return state.bombs.find((b) => b.x === x && b.y === y && !b.flight && !b.held);
 }
 
@@ -280,36 +422,69 @@ function canPlaceAt(state: GameState, x: number, y: number): boolean {
   return tileAt(state, x, y) === TILE.EMPTY && !bombAt(state, x, y) && !flameAt(state, x, y);
 }
 
-function newBomb(state: GameState, p: Player, x: number, y: number, range: number): Bomb {
+function newBomb(state: GameState, p: Player, x: number, y: number, range: number, remote = p.remote): Bomb {
   const bomb: Bomb = {
     id: state.nextBombId++,
     owner: p.id,
     x,
     y,
-    ticksLeft: p.remote ? REMOTE_FUSE_TICKS : BOMB_FUSE_TICKS,
+    ticksLeft: remote ? REMOTE_FUSE_TICKS : BOMB_FUSE_TICKS,
     range,
-    remote: p.remote,
+    remote,
     power: false,
     slide: null,
     slideTimer: 0,
+    slideInterval: KICK_INTERVAL_TICKS,
     held: null,
     flight: null,
   };
   state.bombs.push(bomb);
   p.bombsActive++;
-  for (const other of state.players) {
-    if (other.alive && overlapsTile(other.x, other.y, x, y)) other.passing.push(bomb.id);
-  }
+  letStandersOff(state, bomb);
   return bomb;
+}
+
+/** Whoever a bomb appears under (dropped, or landing) may walk off it. */
+function letStandersOff(state: GameState, bomb: Bomb) {
+  for (const p of state.players) if (p.alive && overlapsTile(p.x, p.y, bomb.x, bomb.y)) p.passing.push(bomb.id);
+}
+
+/** Whether a press of the bomb key could lay a bomb right now (wherever it is). */
+export function canDropBomb(p: Player): boolean {
+  return p.holding === null && p.disease?.kind !== "noBomb" && p.bombsActive < p.bombsMax;
+}
+
+/** Range of the next single bomb this player lays: a power bomb opens each set, the curse caps it at 1. */
+export function bombRangeFor(p: Player): number {
+  return isPowerBomb(p) ? MAX_RANGE : baseRange(p);
+}
+
+const baseRange = (p: Player) => (p.disease?.kind === "shortRange" ? 1 : p.range);
+/** The first bomb of a batch from a power-bomb owner goes all the way (not under the short-range curse). */
+const isPowerBomb = (p: Player) => p.powerBomb && p.bombsActive === 0 && p.disease?.kind !== "shortRange";
+
+/** Cells (tile indices) a bomb at (x, y) would set on fire: stops at stone, at the first brick and at the first bomb. */
+export function blastCells(state: GameState, x: number, y: number, range: number): number[] {
+  const cells = [y * state.width + x];
+  for (const d of BLAST_DIRS) {
+    for (let i = 1; i <= range; i++) {
+      const cx = x + d.dx * i;
+      const cy = y + d.dy * i;
+      const tile = tileAt(state, cx, cy);
+      if (tile === TILE.HARD) break;
+      cells.push(cy * state.width + cx);
+      if (tile === TILE.SOFT || bombAt(state, cx, cy)) break;
+    }
+  }
+  return cells;
 }
 
 function placeBomb(state: GameState, p: Player) {
   if (p.holding !== null) return void throwBomb(state, p); // pressing bomb again lobs the one you carry
-  if (p.disease?.kind === "noBomb") return;
+  if (!canDropBomb(p)) return;
   const available = p.bombsMax - p.bombsActive;
-  if (available <= 0) return;
 
-  const range = p.disease?.kind === "shortRange" ? 1 : p.range;
+  const range = baseRange(p);
   const tx = Math.floor(p.x);
   const ty = Math.floor(p.y);
 
@@ -326,8 +501,8 @@ function placeBomb(state: GameState, p: Player) {
   }
 
   if (!canPlaceAt(state, tx, ty)) return;
-  const power = p.powerBomb && p.bombsActive === 0 && p.disease?.kind !== "shortRange";
-  const bomb = newBomb(state, p, tx, ty, power ? MAX_RANGE : range);
+  const power = isPowerBomb(p);
+  const bomb = newBomb(state, p, tx, ty, bombRangeFor(p));
   bomb.power = power;
 }
 
@@ -361,32 +536,51 @@ function doAction(state: GameState, p: Player) {
 }
 
 function throwBomb(state: GameState, p: Player) {
-  const bomb = state.bombs.find((b) => b.id === p.holding);
-  p.holding = null;
-  if (!bomb) return;
-  bomb.held = null;
-  bomb.x = Math.floor(p.x);
-  bomb.y = Math.floor(p.y);
-  launchBomb(state, bomb, p.facing);
+  const bomb = dropHeld(state, p);
+  if (bomb) launchBomb(state, bomb, p.facing); // with nowhere to land it just stays at their feet
 }
 
-/** Send a bomb flying THROW_DISTANCE tiles (wrapping round the arena); it lands on the first free tile from there. */
-function launchBomb(state: GameState, bomb: Bomb, dir: Dir) {
+/**
+ * Send a bomb flying `distance` tiles (wrapping round the arena); it lands on the first free tile from there.
+ * Returns false when there is nowhere to land.
+ */
+function launchBomb(state: GameState, bomb: Bomb, dir: Dir, distance = THROW_DISTANCE, ticks = FLIGHT_TICKS): boolean {
   const d = DIR_VEC[dir];
-  let toX = bomb.x;
-  let toY = bomb.y;
-  for (let k = THROW_DISTANCE; k < THROW_DISTANCE + state.width + state.height; k++) {
+  for (let k = distance; k < distance + state.width + state.height; k++) {
     const x = wrap(bomb.x + d.dx * k, state.width);
     const y = wrap(bomb.y + d.dy * k, state.height);
-    const clear = tileAt(state, x, y) === TILE.EMPTY && !bombAt(state, x, y);
-    if (clear) {
-      toX = x;
-      toY = y;
-      break;
+    if ((x !== bomb.x || y !== bomb.y) && tileAt(state, x, y) === TILE.EMPTY && !bombAt(state, x, y)) {
+      bomb.slide = null;
+      bomb.flight = { toX: x, toY: y, dir, ticks: 0, total: ticks };
+      return true;
     }
   }
-  bomb.slide = null;
-  bomb.flight = { toX, toY, ticks: 0, total: FLIGHT_TICKS };
+  return false;
+}
+
+/**
+ * A flying bomb touches down. Whoever it lands right on top of is left seeing stars and it bounces on
+ * to the next free tile (as in the SNES games); anyone only brushing the tile may walk off it.
+ */
+function landBomb(state: GameState, b: Bomb) {
+  const { toX, toY, dir } = b.flight!;
+  b.x = toX;
+  b.y = toY;
+  b.flight = null;
+  const heads = state.players.filter((p) => p.alive && !p.jump && Math.floor(p.x) === toX && Math.floor(p.y) === toY);
+  if (heads.length > 0 && launchBomb(state, b, dir, 1, BOUNCE_TICKS)) {
+    for (const p of heads) stun(state, p);
+    return;
+  }
+  letStandersOff(state, b);
+  if (flameAt(state, toX, toY)) b.ticksLeft = 0;
+}
+
+function stun(state: GameState, p: Player) {
+  p.stunned = STUN_TICKS;
+  p.moving = false;
+  if (p.pet) p.pet.dashTicks = 0;
+  dropHeld(state, p);
 }
 
 /** Walking into a bomb with the boots sends it sliding the way we face. */
@@ -397,6 +591,82 @@ function tryKick(state: GameState, p: Player) {
   if (!bomb || bomb.slide || p.passing.includes(bomb.id)) return;
   bomb.slide = p.facing;
   bomb.slideTimer = 1;
+  bomb.slideInterval = KICK_INTERVAL_TICKS;
+}
+
+// ------------------------------------------------------------------ pets
+
+/** The mount's power, on its own key. Each power has a cooldown; a failed attempt costs nothing. */
+function usePet(state: GameState, p: Player) {
+  const pet = p.pet;
+  if (!pet || pet.cooldown > 0 || p.holding !== null) return;
+  const d = DIR_VEC[p.facing];
+  const tx = Math.floor(p.x);
+  const ty = Math.floor(p.y);
+  const free = (x: number, y: number) => canPlaceAt(state, x, y);
+  let used = false;
+
+  switch (pet.kind) {
+    case "runner":
+      pet.dashTicks = DASH_TICKS;
+      used = true;
+      break;
+    case "jumper": {
+      // hop two tiles, over whatever is in between (the outer wall is never crossed: the landing must be free)
+      const toX = tx + d.dx * 2;
+      const toY = ty + d.dy * 2;
+      if (free(toX, toY)) {
+        p.jump = { fromX: p.x, fromY: p.y, toX: toX + 0.5, toY: toY + 0.5, ticks: 0, total: JUMP_TICKS };
+        p.moving = true;
+        used = true;
+      }
+      break;
+    }
+    case "pusher": {
+      // shove the brick block in front one tile further
+      const bx = tx + d.dx;
+      const by = ty + d.dy;
+      const cx = bx + d.dx;
+      const cy = by + d.dy;
+      const landingClear =
+        free(cx, cy) &&
+        !state.powerUps.some((u) => u.x === cx && u.y === cy) &&
+        !state.players.some((o) => o.alive && overlapsTile(o.x, o.y, cx, cy));
+      if (tileAt(state, bx, by) === TILE.SOFT && landingClear) {
+        state.tiles[by * state.width + bx] = TILE.EMPTY;
+        state.tiles[cy * state.width + cx] = TILE.SOFT;
+        used = true;
+      }
+      break;
+    }
+    case "kicker": {
+      // a kick strong enough to send the bomb flying along the floor, boots or not
+      const bomb = bombAt(state, tx + d.dx, ty + d.dy);
+      if (bomb) {
+        bomb.slide = p.facing;
+        bomb.slideTimer = 1;
+        bomb.slideInterval = PET_KICK_INTERVAL_TICKS;
+        used = true;
+      }
+      break;
+    }
+  }
+  if (used) pet.cooldown = PET_COOLDOWN_TICKS[pet.kind];
+}
+
+function advanceJump(state: GameState, p: Player) {
+  const j = p.jump!;
+  j.ticks++;
+  const t = Math.min(1, j.ticks / j.total);
+  p.x = j.fromX + (j.toX - j.fromX) * t;
+  p.y = j.fromY + (j.toY - j.fromY) * t;
+  p.moving = true;
+  if (j.ticks < j.total) return;
+  p.jump = null;
+  // a bomb may have slid onto the landing spot meanwhile: let the rider walk off it
+  for (const b of state.bombs) {
+    if (!b.flight && !b.held && overlapsTile(p.x, p.y, b.x, b.y)) p.passing.push(b.id);
+  }
 }
 
 /** Carried, flying and sliding bombs. */
@@ -413,12 +683,7 @@ function updateBombs(state: GameState) {
 
     if (b.flight) {
       b.ticksLeft = Math.max(b.ticksLeft, 2); // never goes off mid-air
-      if (++b.flight.ticks >= b.flight.total) {
-        b.x = b.flight.toX;
-        b.y = b.flight.toY;
-        b.flight = null;
-        if (flameAt(state, b.x, b.y)) b.ticksLeft = 0;
-      }
+      if (++b.flight.ticks >= b.flight.total) landBomb(state, b);
       continue;
     }
 
@@ -435,7 +700,7 @@ function updateBombs(state: GameState) {
       } else {
         b.x = nx;
         b.y = ny;
-        b.slideTimer = KICK_INTERVAL_TICKS;
+        b.slideTimer = b.slideInterval;
         if (flameAt(state, nx, ny)) b.ticksLeft = 0;
       }
     }
@@ -525,9 +790,74 @@ function explode(state: GameState, start: Bomb) {
   }
 }
 
+// ---------------------------------------------------------- revenge ghosts
+
+export interface BorderTile {
+  x: number;
+  y: number;
+  /** the way into the arena from this tile */
+  inward: Dir;
+  /** the way round the wall, clockwise, from this tile */
+  cw: { dx: number; dy: number };
+}
+
+const ringCache = new Map<number, BorderTile[]>();
+
+/** The outer wall clockwise from the top-left, corners left out (there is nowhere to throw from them). */
+export function borderRing(width: number, height: number): BorderTile[] {
+  return bySize(ringCache, width, height, () => {
+    const ring: BorderTile[] = [];
+    for (let x = 1; x < width - 1; x++) ring.push({ x, y: 0, inward: "down", cw: DIR_VEC.right });
+    for (let y = 1; y < height - 1; y++) ring.push({ x: width - 1, y, inward: "left", cw: DIR_VEC.down });
+    for (let x = width - 2; x > 0; x--) ring.push({ x, y: height - 1, inward: "up", cw: DIR_VEC.left });
+    for (let y = height - 2; y > 0; y--) ring.push({ x: 0, y, inward: "right", cw: DIR_VEC.up });
+    return ring;
+  });
+}
+
+/** Index of the wall tile closest to (x, y). */
+export function nearestBorderIndex(state: GameState, x: number, y: number): number {
+  const ring = borderRing(state.width, state.height);
+  let best = 0;
+  let bestDistance = Infinity;
+  ring.forEach((t, i) => {
+    const d = (t.x + 0.5 - x) ** 2 + (t.y + 0.5 - y) ** 2;
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = i;
+    }
+  });
+  return best;
+}
+
+/** A ghost walks along the wall with the direction keys and lobs a bomb inward with the bomb key. */
+function stepGhost(state: GameState, p: Player, input: Partial<Input> | undefined) {
+  const ghost = p.ghost!;
+  const ring = borderRing(state.width, state.height);
+  if (ghost.moveTimer > 0) ghost.moveTimer--;
+  if (ghost.cooldown > 0) ghost.cooldown--;
+
+  const { cw } = ring[ghost.pos];
+  const along = Math.sign((input?.dx ?? 0) * cw.dx + (input?.dy ?? 0) * cw.dy);
+  if (along !== 0 && ghost.moveTimer === 0) {
+    ghost.pos = wrap(ghost.pos + along, ring.length);
+    ghost.moveTimer = GHOST_MOVE_TICKS;
+  }
+  const tile = ring[ghost.pos];
+  p.x = tile.x + 0.5;
+  p.y = tile.y + 0.5;
+  p.facing = tile.inward;
+
+  if (input?.bomb && ghost.cooldown === 0 && p.bombsActive === 0) {
+    launchBomb(state, newBomb(state, p, tile.x, tile.y, GHOST_BOMB_RANGE, false), tile.inward);
+    ghost.cooldown = GHOST_THROW_COOLDOWN_TICKS;
+  }
+}
+
 // ------------------------------------------------------------- movement
 
-function solidFor(state: GameState, p: Player, tx: number, ty: number): boolean {
+/** Whether this player can't walk into tile (tx, ty) (blocks, and bombs unless passing through them). */
+export function solidFor(state: GameState, p: Player, tx: number, ty: number): boolean {
   const tile = tileAt(state, tx, ty);
   if (tile === TILE.HARD || (tile === TILE.SOFT && !p.wallPass)) return true;
   if (p.bombPass) return false;
@@ -550,13 +880,13 @@ function blockedAt(state: GameState, p: Player, x: number, y: number): boolean {
 }
 
 /** Walk along one axis (horizontal wins); when blocked, press flush and slide round corners. */
-function movePlayer(state: GameState, p: Player, dx: number, dy: number) {
+function movePlayer(state: GameState, p: Player, dx: number, dy: number, speedFactor = 1) {
   if (dx !== 0) dy = 0;
   p.moving = false;
   if (dx === 0 && dy === 0) return;
 
   const before = { x: p.x, y: p.y };
-  const s = playerSpeed(p) / TICK_RATE;
+  const s = Math.min(MAX_STEP_TILES, (playerSpeed(p) * speedFactor) / TICK_RATE);
   const r = PLAYER_RADIUS;
   const main = dx !== 0 ? "x" : "y"; // axis we walk along
   const cross = main === "x" ? "y" : "x"; // axis we may slide on to round a corner

@@ -34,8 +34,13 @@ export const POWERUP_KINDS = [
   "skull",
   "line",
   "power",
+  "egg",
 ] as const;
 export type PowerUpKind = (typeof POWERUP_KINDS)[number];
+
+/** Mounts that hatch from eggs; each has one power on the pet key (row order of pets.png). */
+export const PET_KINDS = ["runner", "jumper", "pusher", "kicker"] as const;
+export type PetKind = (typeof PET_KINDS)[number];
 
 /** The skull's random curses; every one wears off after DISEASE_TICKS. */
 export const DISEASE_KINDS = ["slow", "fast", "noBomb", "autoBomb", "reverse", "shortRange"] as const;
@@ -50,9 +55,17 @@ export interface Input {
   bomb: boolean;
   /** contextual button (edge-triggered): throw / lift with the glove, punch, detonate remote bombs */
   action: boolean;
+  /** use the mount's power (edge-triggered) */
+  pet: boolean;
 }
 
 export type Inputs = Record<string, Partial<Input> | undefined>;
+
+/** The one-shot buttons of an Input (pressed once per key press, cleared after the tick uses them). */
+export const BUTTONS = ["bomb", "action", "pet"] as const;
+export type Button = (typeof BUTTONS)[number];
+
+export const emptyInput = (): Input => ({ dx: 0, dy: 0, bomb: false, action: false, pet: false });
 
 export interface Player {
   id: string;
@@ -81,6 +94,8 @@ export interface Player {
   vest: boolean;
   /** ticks of invulnerability left (after the vest breaks) */
   invuln: number;
+  /** ticks left seeing stars after a thrown bomb bounced off their head: no moving, no buttons */
+  stunned: number;
   /** pending one-shot line bombs */
   lineCharges: number;
   disease: { kind: DiseaseKind; ticksLeft: number } | null;
@@ -88,6 +103,12 @@ export interface Player {
   holding: number | null;
   /** tick at which they were eliminated; null while alive */
   diedAt: number | null;
+  /** the mount being ridden; it takes the next hit instead of the rider */
+  pet: { kind: PetKind; cooldown: number; dashTicks: number } | null;
+  /** revenge mode: after dying, a ghost on the outer wall (index into borderRing) that throws bombs in */
+  ghost: { pos: number; moveTimer: number; cooldown: number } | null;
+  /** mid-air (jumper pet): position goes from `from` to `to`, untouchable until landing */
+  jump: { fromX: number; fromY: number; toX: number; toY: number; ticks: number; total: number } | null;
 }
 
 /** Power-ups that switch on a permanent ability, and the Player flag each one sets. */
@@ -119,10 +140,12 @@ export interface Bomb {
   /** kicked and sliding in this direction, one tile every KICK_INTERVAL_TICKS */
   slide: Dir | null;
   slideTimer: number;
+  /** ticks per tile while sliding (a pet's kick is faster than the boots) */
+  slideInterval: number;
   /** id of the player carrying it */
   held: string | null;
-  /** in the air after a punch or throw; x/y stay at the origin until it lands on `to` */
-  flight: { toX: number; toY: number; ticks: number; total: number } | null;
+  /** in the air after a punch or throw; x/y stay at the origin until it lands on `to`, flying `dir`-wards */
+  flight: { toX: number; toY: number; dir: Dir; ticks: number; total: number } | null;
 }
 
 /** bitmask of arms connected to this flame tile */
@@ -177,6 +200,12 @@ export interface GameState {
   nextBombId: number;
   rng: number;
   mapId: string;
+  /** dead players become ghosts on the outer wall and keep throwing bombs */
+  revenge: boolean;
+  /** ticks until sudden death (null: no time limit); at 0 the blocks start falling */
+  timeLeft: number | null;
+  /** how many cells of the sudden-death spiral have been filled */
+  fallen: number;
 }
 
 export interface CreateGameOptions {
@@ -184,4 +213,7 @@ export interface CreateGameOptions {
   /** `spawn` picks the map spawn point (0-3); defaults to SPAWN_ORDER so two players start in opposite corners */
   players: { id: string; color: number; spawn?: number }[];
   seed: number;
+  revenge?: boolean;
+  /** match length before sudden death, in ticks; omit or null for no limit */
+  timeLimitTicks?: number | null;
 }
