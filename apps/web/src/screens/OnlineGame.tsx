@@ -26,6 +26,9 @@ interface Props {
   onLeave: () => void;
 }
 
+/** how often to offer the server an input while our clock isn't lined up with it yet, in ms */
+const SYNC_RETRY_MS = 250;
+
 /** Online, everything controls the same bomber: WASD, arrows, the first gamepad and the touch controls. */
 function mergedInput(kb: Keyboard, pads: GamepadReader, touch: TouchPad): Input {
   return combineInputs(kb.poll(0), kb.poll(1), pads.poll(0), touch.poll());
@@ -54,6 +57,7 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
     const detach = keyboard.attach();
     let lastDx = 0;
     let lastDy = 0;
+    let lastSentAt = -Infinity;
     let sized = false;
     let raf = 0;
     let lastHudKey = "";
@@ -74,9 +78,13 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
     const frame = (now: number) => {
       if (playing) {
         const input = mergedInput(keyboard, pads, touch);
-        if (input.dx !== lastDx || input.dy !== lastDy || input.bomb || input.action || input.pet) {
+        const changed = input.dx !== lastDx || input.dy !== lastDy || input.bomb || input.action || input.pet;
+        // until the server has acknowledged an input our clock isn't lined up and nothing is predicted:
+        // keep offering it one, so the first step of the match already responds at once
+        if (changed || (!predictor.synced && now - lastSentAt > SYNC_RETRY_MS)) {
           lastDx = input.dx;
           lastDy = input.dy;
+          lastSentAt = now;
           sendRef.current({ t: "input", ...input, seq: predictor.record(input, now) });
         }
       }

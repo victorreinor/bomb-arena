@@ -247,6 +247,19 @@ export function stepPlayer(state: GameState, p: Player, input: Partial<Input> | 
   updatePassing(state, p);
 }
 
+/**
+ * The item on the player's tile becomes theirs (riders leave eggs on the floor for someone else).
+ * Like stepPlayer, the client runs it to predict its own bomber.
+ */
+export function pickUp(state: GameState, p: Player) {
+  const tx = Math.floor(p.x);
+  const ty = Math.floor(p.y);
+  const pu = state.powerUps.findIndex((u) => u.x === tx && u.y === ty);
+  if (pu < 0 || (state.powerUps[pu].kind === "egg" && p.pet)) return;
+  applyPowerUp(state, p, state.powerUps[pu].kind);
+  state.powerUps.splice(pu, 1);
+}
+
 export function step(state: GameState, inputs: Inputs = {}): void {
   state.tick++;
   if (state.phase !== "playing") {
@@ -285,12 +298,7 @@ export function step(state: GameState, inputs: Inputs = {}): void {
         continue;
       }
     }
-    const pu = state.powerUps.findIndex((u) => u.x === tx && u.y === ty);
-    // riders leave eggs on the floor for someone else
-    if (pu >= 0 && !(state.powerUps[pu].kind === "egg" && p.pet)) {
-      applyPowerUp(state, p, state.powerUps[pu].kind);
-      state.powerUps.splice(pu, 1);
-    }
+    pickUp(state, p);
   }
 
   spreadDiseases(state);

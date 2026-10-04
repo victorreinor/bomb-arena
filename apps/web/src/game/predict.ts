@@ -1,4 +1,4 @@
-import { BUTTONS, TICK_MS, bombAt, emptyInput, stepPlayer, type Bomb, type GameState, type Input, type InputAck, type Player } from "@bomberman/engine";
+import { BUTTONS, TICK_MS, bombAt, emptyInput, pickUp, stepPlayer, type Bomb, type GameState, type Input, type InputAck, type Player, type PowerUp } from "@bomberman/engine";
 import { bombsPlaced, type GameEvent } from "./events";
 import { lerpPlayer } from "./snapshots";
 
@@ -23,15 +23,14 @@ export interface Prediction {
   bombs: Bomb[];
   /** the ones only the prediction has so far (just laid, not yet in a snapshot) */
   fresh: Bomb[];
+  /** items on the newest snapshot's board that our bomber has walked over since */
+  taken: PowerUp[];
+  /** an item it is stepping onto right now (taken on the coming tick): gone the moment we draw it there */
+  reaching: PowerUp[];
 }
 
-/** A replay from one snapshot: our bomber at the last whole tick and the next, and our bombs. */
-interface Replay {
-  player: Player;
-  next: Player;
-  bombs: Bomb[];
-  fresh: Bomb[];
-}
+/** A replay from one snapshot: our bomber at the last whole tick and the next, our bombs, the items we took. */
+type Replay = Omit<Prediction, "player" | "correction"> & { player: Player; next: Player };
 
 /** The input in force at `tick`: the newest one landed by then; its buttons fire only on the tick it lands. */
 function inputAt(sent: Sent[], lands: number[], tick: number): Input {
@@ -63,6 +62,11 @@ export class Predictor {
   private shown: { x: number; y: number; now: number; latest: GameState } | null = null;
 
   constructor(private readonly me: string) {}
+
+  /** Whether our clock is lined up with the server's yet (an input has been acknowledged). */
+  get synced() {
+    return this.offset !== null;
+  }
 
   /** Number an input about to go out, and remember it. */
   record(input: Input, now: number): number {
@@ -104,7 +108,7 @@ export class Predictor {
       correction = { x: before.x - was.x, y: before.y - was.y };
     }
     this.shown = { x: player.x, y: player.y, now, latest };
-    return { player, correction, bombs: r.bombs, fresh: r.fresh };
+    return { player, correction, bombs: r.bombs, fresh: r.fresh, taken: r.taken, reaching: r.reaching };
   }
 
   /** An acknowledgement of a newer input tells how far our clock is from the server's ticks. */
@@ -133,12 +137,16 @@ export class Predictor {
     const advance = () => {
       world.tick++;
       stepPlayer(world, me, inputAt(this.sent, lands, world.tick));
+      if (!me.jump) pickUp(world, me); // in mid-air items pass underneath
     };
+    const gone = () => latest.powerUps.filter((u) => !world.powerUps.some((w) => w.x === u.x && w.y === u.y));
     for (let k = 0; k < whole; k++) advance();
     const player = structuredClone(me);
+    const taken = gone();
     advance();
+    const reaching = gone().filter((u) => !taken.includes(u));
     const bombs = world.bombs.filter((b) => b.owner === this.me);
-    const replay = { player, next: me, bombs, fresh: bombs.filter((b) => b.id >= known) };
+    const replay = { player, next: me, bombs, fresh: bombs.filter((b) => b.id >= known), taken, reaching };
     this.cached = { key, latest, replay };
     return replay;
   }
@@ -159,6 +167,8 @@ export class PredictedView {
   private lastNow = 0;
   /** cells of the bombs only the prediction had last frame, to spot the ones just laid */
   private fresh = new Set<number>();
+  /** cells of items we picked up ahead of the server: hidden until the playback has them gone too */
+  private grabbed = new Set<number>();
   private live = false;
 
   constructor(private readonly me: string) {}
@@ -167,13 +177,18 @@ export class PredictedView {
   apply(view: GameState, pred: Prediction | null, now: number): { view: GameState; events: GameEvent[] } {
     const dt = this.lastNow ? Math.min(0.1, (now - this.lastNow) / 1000) : 0;
     this.lastNow = now;
+    const starting = !this.live;
     this.live = pred !== null;
     if (!pred) {
       this.err = { x: 0, y: 0 };
       this.fresh.clear();
+      this.grabbed.clear();
       return { view, events: [] };
     }
 
+    // when the prediction takes over, start from where the playback had us and glide ahead from there
+    const drawn = starting ? view.players.find((p) => p.id === this.me) : undefined;
+    if (drawn) this.err = { x: drawn.x - pred.player.x, y: drawn.y - pred.player.y };
     this.err.x += pred.correction.x;
     this.err.y += pred.correction.y;
     if (Math.hypot(this.err.x, this.err.y) > SNAP_TILES) this.err = { x: 0, y: 0 };
@@ -190,17 +205,32 @@ export class PredictedView {
     // our bombs the playback hasn't reached yet (just laid, or confirmed but still ahead of the picture)
     const ahead = pred.bombs.filter((b) => !b.flight && !b.held && !bombAt(view, b.x, b.y));
 
-    const cell = (b: Bomb) => b.y * view.width + b.x;
+    const cell = (b: { x: number; y: number }) => b.y * view.width + b.x;
     const appeared = pred.fresh.filter((b) => !this.fresh.has(cell(b)));
     this.fresh = new Set(pred.fresh.map(cell));
-    return { view: { ...view, players, bombs: [...view.bombs, ...ahead] }, events: bombsPlaced(appeared, () => true) };
+    const events = bombsPlaced(appeared, () => true);
+    // items vanish as we draw our bomber onto them (the skull's curse is the server's to announce), and stay
+    // gone while the playback catches up with the server taking them
+    const here = cell({ x: Math.floor(player.x + this.err.x), y: Math.floor(player.y + this.err.y) });
+    const got = [...pred.taken, ...pred.reaching.filter((u) => cell(u) === here)];
+    for (const u of got) {
+      if (this.grabbed.has(cell(u))) continue;
+      this.grabbed.add(cell(u));
+      if (u.kind !== "skull") events.push({ type: "pickup", id: this.me, x: u.x + 0.5, y: u.y + 0.5, kind: u.kind });
+    }
+    const powerUps = this.grabbed.size > 0 ? view.powerUps.filter((u) => !this.grabbed.has(cell(u))) : view.powerUps;
+    for (const c of this.grabbed) {
+      if (!got.some((u) => cell(u) === c) && !view.powerUps.some((u) => cell(u) === c)) this.grabbed.delete(c);
+    }
+    return { view: { ...view, players, bombs: [...view.bombs, ...ahead], powerUps }, events };
   }
 
-  /** While we predict, the server's report of our own bombs comes after we already showed and played them. */
+  /** While we predict, the server's report of our own bombs and pick-ups comes after we already showed and played them. */
   withoutOwn(events: GameEvent[]): GameEvent[] {
     if (!this.live) return events;
     return events.flatMap((e): GameEvent[] => {
       if (e.type === "pose") return e.pose === "place" && e.id === this.me ? [] : [e];
+      if (e.type === "pickup") return e.id === this.me ? [] : [e];
       if (e.type !== "bombPlaced") return [e];
       const bombs = e.bombs.filter((b) => b.owner !== this.me);
       return bombs.length > 0 ? [{ ...e, bombs }] : [];
