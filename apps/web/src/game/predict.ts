@@ -1,4 +1,4 @@
-import { BUTTONS, TICK_MS, TILE, bombAt, countingDown, emptyInput, pickUp, stepPlayer, type Bomb, type GameState, type Input, type InputAck, type Player, type PowerUp, type Tile } from "@bomberman/engine";
+import { BUTTONS, TICK_MS, TILE, bombAt, countingDown, emptyInput, pickUp, stepPlayer, type Bomb, type GameState, type Input, type InputAck, type Player, type PowerUp, type Tile } from "@bomb-arena/engine";
 import { bombsPlaced, type GameEvent } from "./events";
 import { lerpPlayer } from "./snapshots";
 

@@ -1,4 +1,4 @@
-import { TICK_RATE, type GameState, type RoomView } from "@bomberman/engine";
+import { TICK_RATE, type GameState, type RoomView } from "@bomb-arena/engine";
 
 export const bestOfLabel = (n: number) => (n === 1 ? "Partidas avulsas" : `Melhor de ${n}`);
 export const timeLimitLabel = (minutes: number) => (minutes === 0 ? "Sem limite" : `${minutes} min`);

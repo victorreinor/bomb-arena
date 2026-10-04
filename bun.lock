@@ -3,17 +3,17 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "bomberman-online",
+      "name": "bomb-arena",
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5.6.0",
       },
     },
     "apps/server": {
-      "name": "@bomberman/server",
+      "name": "@bomb-arena/server",
       "version": "0.0.0",
       "dependencies": {
-        "@bomberman/engine": "workspace:*",
+        "@bomb-arena/engine": "workspace:*",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20250101.0",
@@ -21,10 +21,10 @@
       },
     },
     "apps/web": {
-      "name": "@bomberman/web",
+      "name": "@bomb-arena/web",
       "version": "0.0.0",
       "dependencies": {
-        "@bomberman/engine": "workspace:*",
+        "@bomb-arena/engine": "workspace:*",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
       },
@@ -36,7 +36,7 @@
       },
     },
     "packages/engine": {
-      "name": "@bomberman/engine",
+      "name": "@bomb-arena/engine",
       "version": "0.0.0",
     },
   },
@@ -79,11 +79,11 @@
 
     "@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
-    "@bomberman/engine": ["@bomberman/engine@workspace:packages/engine"],
+    "@bomb-arena/engine": ["@bomb-arena/engine@workspace:packages/engine"],
 
-    "@bomberman/server": ["@bomberman/server@workspace:apps/server"],
+    "@bomb-arena/server": ["@bomb-arena/server@workspace:apps/server"],
 
-    "@bomberman/web": ["@bomberman/web@workspace:apps/web"],
+    "@bomb-arena/web": ["@bomb-arena/web@workspace:apps/web"],
 
     "@cloudflare/kv-asset-handler": ["@cloudflare/kv-asset-handler@0.5.0", "", {}, "sha512-jxQYkj8dSIzc0cD6cMMNdOc1UVjqSqu8BZdor5s8cGjW2I8BjODt/kWPVdY+u9zj3ms75Q5qaZgnxUad83+eAg=="],
 

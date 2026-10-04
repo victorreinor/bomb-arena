@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BUTTONS, emptyInput, type Button, type Input } from "@bomberman/engine";
+import { BUTTONS, emptyInput, type Button, type Input } from "@bomb-arena/engine";
 
 /** Several sources for one bomber: the first that steers wins, any button press counts. */
 export function combineInputs(...sources: (Input | null)[]): Input {

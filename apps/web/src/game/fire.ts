@@ -1,4 +1,4 @@
-import { BLAST_DIRS, type Flame } from "@bomberman/engine";
+import { BLAST_DIRS, type Flame } from "@bomb-arena/engine";
 import { TILE_PX } from "./sprites";
 
 /** Fire is painted in 2x2 sprite-pixel cells so it matches the chunky pixel art around it. */

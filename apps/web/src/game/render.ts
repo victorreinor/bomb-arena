@@ -15,7 +15,7 @@ import {
   type Bomb,
   type GameState,
   type Player,
-} from "@bomberman/engine";
+} from "@bomb-arena/engine";
 import { ACCENT, ACCENT_INK } from "./colors";
 import type { AmbientSource, Effects } from "./effects";
 import type { ActionPose } from "./events";

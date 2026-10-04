@@ -1,5 +1,5 @@
 import { audio } from "./audio";
-import type { PetKind } from "@bomberman/engine";
+import type { PetKind } from "@bomb-arena/engine";
 import { isMine, type GameEvent } from "./events";
 
 /** The kicker power has no sound of its own: the bomb it kicks already makes one. */

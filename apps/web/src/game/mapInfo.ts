@@ -1,4 +1,4 @@
-import { type GameState, type MapId } from "@bomberman/engine";
+import { type GameState, type MapId } from "@bomb-arena/engine";
 import type { TrackName } from "./audio";
 import type { TileTheme } from "./sprites";
 

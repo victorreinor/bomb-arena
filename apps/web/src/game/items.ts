@@ -1,4 +1,4 @@
-import { POWERUP_KINDS, type DiseaseKind, type PetKind, type PowerUpKind } from "@bomberman/engine";
+import { POWERUP_KINDS, type DiseaseKind, type PetKind, type PowerUpKind } from "@bomb-arena/engine";
 
 /** Column of each power-up in powerups.png. */
 export const ITEM_COL = Object.fromEntries(POWERUP_KINDS.map((kind, i) => [kind, i])) as Record<PowerUpKind, number>;

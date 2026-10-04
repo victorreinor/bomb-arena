@@ -1,4 +1,4 @@
-import { PET_KINDS, type PetKind, type PowerUpKind } from "@bomberman/engine";
+import { PET_KINDS, type PetKind, type PowerUpKind } from "@bomb-arena/engine";
 import { PET_COLUMNS, PET_ICON_COLUMN } from "./sprites";
 import { ITEM_COL, ITEM_COUNT, ITEM_INFO, PET_INFO } from "./items";
 

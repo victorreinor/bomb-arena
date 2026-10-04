@@ -15,7 +15,7 @@ import {
   type PetKind,
   type Player,
   type PowerUpKind,
-} from "@bomberman/engine";
+} from "@bomb-arena/engine";
 import { warped } from "./snapshots";
 
 /** What a bomber is caught doing for a moment (the sprite strikes the pose) */

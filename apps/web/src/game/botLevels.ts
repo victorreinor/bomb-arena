@@ -1,4 +1,4 @@
-import { BOT_LEVELS, type BotLevel } from "@bomberman/engine";
+import { BOT_LEVELS, type BotLevel } from "@bomb-arena/engine";
 
 export const BOT_LEVEL_NAMES: Record<BotLevel, string> = { easy: "Fácil", normal: "Normal", hard: "Difícil" };
 export const BOT_LEVEL_OPTIONS = BOT_LEVELS.map((value) => ({ value, label: BOT_LEVEL_NAMES[value] }));

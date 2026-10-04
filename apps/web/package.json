@@ -1,5 +1,5 @@
 {
-  "name": "@bomberman/web",
+  "name": "@bomb-arena/web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@bomberman/engine": "workspace:*",
+    "@bomb-arena/engine": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

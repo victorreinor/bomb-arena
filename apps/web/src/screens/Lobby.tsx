@@ -13,7 +13,7 @@ import {
   type ClientMsg,
   type MemberView,
   type RoomView,
-} from "@bomberman/engine";
+} from "@bomb-arena/engine";
 import { audio } from "../game/audio";
 import { BOT_LEVEL_NAMES, BOT_LEVEL_OPTIONS, nextBotLevel } from "../game/botLevels";
 import { ItemIcon, PetIcon } from "../game/ItemIcon";

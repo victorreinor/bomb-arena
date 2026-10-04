@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { computeRanking, knockoutsBy, type GameState } from "@bomberman/engine";
+import { computeRanking, knockoutsBy, type GameState } from "@bomb-arena/engine";
 import { COLOR_NAMES } from "./colors";
 
 interface PodiumEntry {

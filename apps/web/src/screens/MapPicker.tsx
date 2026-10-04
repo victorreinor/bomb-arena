@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { FLOOR, GRID_W, MAPS, MAX_MEMBERS, floorCode, getMap, mapSeats, wrap, type MapDef } from "@bomberman/engine";
+import { FLOOR, GRID_W, MAPS, MAX_MEMBERS, floorCode, getMap, mapSeats, wrap, type MapDef } from "@bomb-arena/engine";
 import { ACCENT_INK } from "../game/colors";
 import { mapInfo } from "../game/mapInfo";
 import { TILE_PX, TILE_THEMES, drawFloor, drawFloorCell, drawTile, floorSheetUrl, load, loaded, tileName, tileSheetUrl } from "../game/sprites";

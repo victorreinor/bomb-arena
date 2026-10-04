@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MAX_MEMBERS, isValidRoomCode, normalizeRoomCode, type BotLevel } from "@bomberman/engine";
+import { MAX_MEMBERS, isValidRoomCode, normalizeRoomCode, type BotLevel } from "@bomb-arena/engine";
 import { savedName, saveName } from "../config";
 import { audio } from "../game/audio";
 import { BOT_LEVEL_OPTIONS } from "../game/botLevels";

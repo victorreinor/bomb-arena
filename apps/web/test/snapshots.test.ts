@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BASE_SPEED, TICK_MS, TICK_RATE, step, toSnapshot, type GameSnapshot, type GameState } from "@bomberman/engine";
+import { BASE_SPEED, TICK_MS, TICK_RATE, step, toSnapshot, type GameSnapshot, type GameState } from "@bomb-arena/engine";
 import { corridor, makeGame, testBomb } from "../../../packages/engine/test/helpers";
 import { SnapshotBuffer, lerpPlayer, lerpState } from "../src/game/snapshots";
 import { FRAME_MS } from "./loopback";

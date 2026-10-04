@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ABILITY_FIELDS, type AbilityKind, type Player } from "@bomberman/engine";
+import { ABILITY_FIELDS, type AbilityKind, type Player } from "@bomb-arena/engine";
 import { COLOR_CSS } from "./colors";
 import { ItemIcon, PetIcon } from "./ItemIcon";
 import { DISEASE_NAME, PET_INFO } from "./items";

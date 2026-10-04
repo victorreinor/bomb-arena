@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { TICK_RATE, type ClientMsg, type GameState, type Input, type RoomView } from "@bomberman/engine";
+import { TICK_RATE, type ClientMsg, type GameState, type Input, type RoomView } from "@bomb-arena/engine";
 import { audio } from "../game/audio";
 import { Effects } from "../game/effects";
 import { diffGame, type GameEvent } from "../game/events";

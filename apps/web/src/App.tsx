@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { MAX_MEMBERS, randomRoomCode, type BotLevel } from "@bomberman/engine";
+import { MAX_MEMBERS, randomRoomCode, type BotLevel } from "@bomb-arena/engine";
 import { LocalGame } from "./game/LocalGame";
 import { SoundToggle } from "./game/SoundToggle";
 import { useRoom, type RoomError } from "./net/useRoom";

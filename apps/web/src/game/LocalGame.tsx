@@ -19,7 +19,7 @@ import {
   type BotLevel,
   type GameState,
   type PetKind,
-} from "@bomberman/engine";
+} from "@bomb-arena/engine";
 import { audio } from "./audio";
 import { BOT_LEVEL_NAMES } from "./botLevels";
 import { COLOR_NAMES } from "./colors";

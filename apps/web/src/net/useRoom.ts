@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PROTOCOL_VERSION, type ClientMsg, type ErrorCode, type RoomView, type ServerMsg } from "@bomberman/engine";
+import { PROTOCOL_VERSION, type ClientMsg, type ErrorCode, type RoomView, type ServerMsg } from "@bomb-arena/engine";
 import { playerId, serverUrl } from "../config";
 import { SnapshotBuffer, percentile } from "../game/snapshots";
 

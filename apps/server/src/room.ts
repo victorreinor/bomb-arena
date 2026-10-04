@@ -16,7 +16,7 @@ import {
   type ErrorCode,
   type RoomState,
   type ServerMsg,
-} from "@bomberman/engine";
+} from "@bomb-arena/engine";
 
 export interface Env {
   ROOM: DurableObjectNamespace;

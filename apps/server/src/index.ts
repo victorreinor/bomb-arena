@@ -1,4 +1,4 @@
-import { TokenBucket, isValidRoomCode } from "@bomberman/engine";
+import { TokenBucket, isValidRoomCode } from "@bomb-arena/engine";
 import type { Env } from "./room";
 
 export { Room } from "./room";

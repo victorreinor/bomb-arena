@@ -1,4 +1,4 @@
-import { ABILITY_FIELDS, TICK_RATE, type GameState } from "@bomberman/engine";
+import { ABILITY_FIELDS, TICK_RATE, type GameState } from "@bomb-arena/engine";
 
 /**
  * Exactly what the HUD shows (allow-list), as a string. Screens re-render the HUD only when it

@@ -1,4 +1,4 @@
-import { MAX_MEMBERS, MAX_NAME_LENGTH, MIN_MEMBERS } from "@bomberman/engine";
+import { MAX_MEMBERS, MAX_NAME_LENGTH, MIN_MEMBERS } from "@bomb-arena/engine";
 
 const CAPACITIES = Array.from({ length: MAX_MEMBERS - MIN_MEMBERS + 1 }, (_, i) => MIN_MEMBERS + i);
 

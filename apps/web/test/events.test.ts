@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MAX_RANGE, VENT_PERIOD_TICKS, step, type GameState } from "@bomberman/engine";
+import { MAX_RANGE, VENT_PERIOD_TICKS, step, type GameState } from "@bomb-arena/engine";
 import { corridor, makeGame, run, testBomb, testFlame } from "../../../packages/engine/test/helpers";
 import { diffGame } from "../src/game/events";
 

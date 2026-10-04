@@ -1,4 +1,4 @@
-import { DIR_VEC, type Dir, type PetKind, type PowerUpKind } from "@bomberman/engine";
+import { DIR_VEC, type Dir, type PetKind, type PowerUpKind } from "@bomb-arena/engine";
 import { COLOR_CSS } from "./colors";
 import type { ActionPose, GameEvent } from "./events";
 import { drawFireball, drawGlow } from "./fire";

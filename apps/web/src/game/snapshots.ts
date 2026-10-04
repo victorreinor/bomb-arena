@@ -1,4 +1,4 @@
-import { TICK_MS, fromSnapshot, type Board, type GameSnapshot, type GameState, type InputAck, type Player, type SentLists } from "@bomberman/engine";
+import { TICK_MS, fromSnapshot, type Board, type GameSnapshot, type GameState, type InputAck, type Player, type SentLists } from "@bomb-arena/engine";
 
 const MAX_BUFFER = 30;
 /** how many snapshots the lateness estimate looks back over (about two seconds) */

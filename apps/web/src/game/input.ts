@@ -1,4 +1,4 @@
-import { BUTTONS, DIR_VEC, type Button, type Dir, type Input } from "@bomberman/engine";
+import { BUTTONS, DIR_VEC, type Button, type Dir, type Input } from "@bomb-arena/engine";
 
 const DIRS: Dir[] = ["up", "down", "left", "right"];
 const isButton = (key: Dir | Button): key is Button => (BUTTONS as readonly string[]).includes(key);

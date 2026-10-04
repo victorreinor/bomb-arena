@@ -12,7 +12,7 @@ import {
   type Input,
   type InputAck,
   type RoomState,
-} from "@bomberman/engine";
+} from "@bomb-arena/engine";
 import { diffGame, type GameEvent } from "../src/game/events";
 import { PredictedView, Predictor, type Prediction } from "../src/game/predict";
 import { SnapshotBuffer } from "../src/game/snapshots";

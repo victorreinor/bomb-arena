@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BASE_SPEED, TICK_RATE, killPlayer, type Bomb, type GameState, type Player } from "@bomberman/engine";
+import { BASE_SPEED, TICK_RATE, killPlayer, type Bomb, type GameState, type Player } from "@bomb-arena/engine";
 import { corridor, makeGame, startedMatch, testBomb } from "../../../packages/engine/test/helpers";
 import type { GameEvent } from "../src/game/events";
 import { PredictedView, type Prediction } from "../src/game/predict";

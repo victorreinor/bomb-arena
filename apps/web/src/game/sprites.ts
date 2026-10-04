@@ -1,4 +1,4 @@
-import { BELT_DIRS, FLOOR, PET_KINDS, PLAYER_COLORS, type Bomb, type Dir, type PetKind } from "@bomberman/engine";
+import { BELT_DIRS, FLOOR, PET_KINDS, PLAYER_COLORS, type Bomb, type Dir, type PetKind } from "@bomb-arena/engine";
 
 /**
  * The layout of every sprite sheet lives here: the game reads it to draw, and the generator in tools/
