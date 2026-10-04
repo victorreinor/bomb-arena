@@ -2,25 +2,51 @@ import { describe, expect, test } from "bun:test";
 import {
   BOMB_FUSE_TICKS,
   CLASSIC,
+  DUEL,
+  FACEOFF,
   FLAME_TICKS,
   GRID_H,
   GRID_W,
   MAPS,
+  mapSeats,
   TILE,
   computeRanking,
+  countingDown,
   createGame,
   killPlayer,
+  knockoutsBy,
   step,
   type GameState,
 } from "../src";
-import { makeGame, run } from "./helpers";
+import { corridor, makeGame, run, testBomb } from "./helpers";
 
 
 describe("maps", () => {
-  test.each(MAPS.map((m) => [m.id, m] as const))("%s has valid shape and 4 spawns", (_, map) => {
-    expect(map.rows).toHaveLength(GRID_H);
-    for (const row of map.rows) expect(row).toHaveLength(GRID_W);
-    for (const n of "1234") expect(map.rows.join("")).toContain(n);
+  test.each(MAPS.map((m) => [m.id, m] as const))("%s is a walled rectangle with spawns in its corners", (_, map) => {
+    const w = map.rows[0].length;
+    const h = map.rows.length;
+    for (const row of map.rows) expect(row).toHaveLength(w);
+    expect(map.rows[0]).toBe("#".repeat(w));
+    expect(map.rows[h - 1]).toBe("#".repeat(w));
+    for (const row of map.rows) expect(row[0] + row[w - 1]).toBe("##");
+    const corners = { "1": [1, 1], "2": [w - 2, 1], "3": [1, h - 2], "4": [w - 2, h - 2] };
+    const spawns = [...map.rows.join("")].filter((c) => c >= "1" && c <= "9");
+    expect([2, 4]).toContain(mapSeats(map));
+    for (const n of spawns) {
+      const [x, y] = corners[n as keyof typeof corners];
+      expect(map.rows[y][x]).toBe(n);
+    }
+  });
+
+  test("the big maps are 15x13 for four; the one-on-one maps are smaller, with two spawns in opposite corners", () => {
+    for (const map of MAPS.filter((m) => mapSeats(m) === 4)) expect([map.rows[0].length, map.rows.length]).toEqual([GRID_W, GRID_H]);
+    expect([DUEL.rows[0].length, DUEL.rows.length]).toEqual([11, 9]);
+    expect([FACEOFF.rows[0].length, FACEOFF.rows.length]).toEqual([13, 11]);
+    for (const map of [DUEL, FACEOFF]) {
+      expect(mapSeats(map)).toBe(2);
+      const s = createGame({ map, seed: 3, players: [{ id: "a", color: 0 }, { id: "b", color: 1 }] });
+      expect(s.players.map((p) => [p.x, p.y])).toEqual([[1.5, 1.5], [s.width - 1.5, s.height - 1.5]]);
+    }
   });
 
   test("classic keeps spawn corners clear", () => {
@@ -190,7 +216,7 @@ describe("ranking", () => {
   const killAt = (s: GameState, id: string, tick: number) => {
     const p = s.players.find((o) => o.id === id)!;
     s.tick = tick;
-    killPlayer(s, p);
+    killPlayer(s, p, "blast");
   };
 
   test("survivor first, then by how long each lasted", () => {
@@ -221,5 +247,43 @@ describe("ranking", () => {
     for (let i = 0; i < BOMB_FUSE_TICKS; i++) step(s, { p1: { dx: -1 } });
     expect(s.players.every((p) => !p.alive)).toBe(true);
     expect(computeRanking(s).map((r) => r.place)).toEqual([1, 1]);
+  });
+});
+
+describe("ready… go", () => {
+  test("until the countdown is over nobody moves or drops a bomb, and the clock waits", () => {
+    const s = makeGame(corridor("1....2"), 2, 1, { countdownTicks: 10, timeLimitTicks: 100 });
+    run(s, 10, { p1: { dx: 1, bomb: true } });
+    expect(countingDown(s)).toBe(true);
+    expect(s.players[0].x).toBe(1.5);
+    expect(s.bombs).toHaveLength(0);
+    expect(s.timeLeft).toBe(100);
+    step(s, { p1: { dx: 1 } });
+    expect(countingDown(s)).toBe(false);
+    expect(s.players[0].x).toBeGreaterThan(1.5);
+    expect(s.timeLeft).toBe(99);
+  });
+});
+
+describe("who knocked out whom", () => {
+  test("a blast is credited to the bomb's owner, a bomber caught in their own included", () => {
+    const s = makeGame(corridor("1...2"));
+    testBomb(s, 2, 1, { owner: "p2", ticksLeft: 1, range: 3 });
+    step(s);
+    expect(s.players.map((p) => p.death)).toEqual([
+      { how: "blast", by: "p2" },
+      { how: "blast", by: "p2" },
+    ]);
+    expect(knockoutsBy(s, "p2")).toBe(1); // their own doesn't count
+    expect(knockoutsBy(s, "p1")).toBe(0);
+  });
+
+  test("a chain reaction is credited to whoever's bomb the flame came from", () => {
+    const s = makeGame(corridor("1.....2"));
+    testBomb(s, 2, 1, { owner: "p1", ticksLeft: 1, range: 2 }); // sets off p2's bomb at x=4...
+    testBomb(s, 4, 1, { owner: "p2", ticksLeft: 200, range: 3 }); // ...whose blast reaches p2 at x=6
+    s.players[0].invuln = 99; // p1 sits this one out
+    step(s);
+    expect(s.players[1].death).toEqual({ how: "blast", by: "p2" });
   });
 });

@@ -8,7 +8,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { COLOR_CSS } from "../apps/web/src/game/colors";
+import { ACCENT, COLOR_CSS } from "../apps/web/src/game/colors";
 import { POWERUP_KINDS, type PowerUpKind } from "../packages/engine/src";
 import { bomberSheet, emoteSheet } from "./bomber-art";
 import { petSheet } from "./pet-art";
@@ -59,8 +59,6 @@ save("favicon.png", bombFrame(6));
 
 // -------------------------------------------------------------- app icons
 
-/** the interface's accent colour (--accent in styles.css), behind the bomb like the touch bomb button */
-const ICON_BACKGROUND = "#ffb62e";
 /** the bomb stays within this share of the icon, inside the circle launchers may crop a "maskable" icon to */
 const ICON_ART_SHARE = 0.62;
 
@@ -68,7 +66,7 @@ const ICON_ART_SHARE = 0.62;
 for (const size of [180, 192, 512]) {
   const k = Math.floor((size * ICON_ART_SHARE) / T);
   const icon = new Img(size, size);
-  icon.rect(0, 0, size, size, hex(ICON_BACKGROUND));
+  icon.rect(0, 0, size, size, hex(ACCENT)); // like the touch bomb button
   const at = Math.round((size - T * k) / 2);
   icon.blit(upscale(bombFrame(7), k), at, at);
   save(`icon-${size}.png`, icon);

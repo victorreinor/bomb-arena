@@ -5,6 +5,7 @@ import {
   CLASSIC,
   GHOST_THROW_COOLDOWN_TICKS,
   MAPS,
+  mapSeats,
   TILE,
   TICK_RATE,
   botInput,
@@ -21,7 +22,7 @@ import {
   type GameState,
   type Inputs,
 } from "../src";
-import { corridor, makeGame, send, testBomb } from "./helpers";
+import { corridor, makeGame, send, testBomb, testFlame } from "./helpers";
 
 /** Runs a game where the listed ids are bots and everyone else stands still. */
 function play(s: GameState, bots: string[], ticks: number, level?: BotLevel) {
@@ -80,14 +81,15 @@ describe("bot", () => {
     expect(s.tiles.filter((t) => t === TILE.SOFT).length).toBeLessThan(bricksBefore - 5);
   });
 
-  test.each(MAPS.map((m) => [m.id, m] as const))("a 4-bot match on %s ends (sudden death guarantees it)", (_, map) => {
+  test.each(MAPS.map((m) => [m.id, m] as const))("a match of bots filling %s ends (sudden death guarantees it)", (_, map) => {
+    const ids = ["a", "b", "c", "d"].slice(0, mapSeats(map));
     const s = createGame({
       map,
       seed: 5,
       timeLimitTicks: 60 * TICK_RATE,
-      players: ["a", "b", "c", "d"].map((id, i) => ({ id, color: i })),
+      players: ids.map((id, i) => ({ id, color: i })),
     });
-    play(s, ["a", "b", "c", "d"], 4 * 60 * TICK_RATE);
+    play(s, ids, 4 * 60 * TICK_RATE);
     expect(s.phase).toBe("finished");
   });
 
@@ -97,7 +99,7 @@ describe("bot", () => {
   test.each(MAPS.flatMap((m) => BOT_LEVELS.map((level) => [m.id, level, m] as const)))(
     "on %s, %s bots never walk into their own blast and never pace about with nothing going on",
     (_, level, map) => {
-      const ids = ["a", "b", "c", "d"];
+      const ids = ["a", "b", "c", "d"].slice(0, mapSeats(map));
       const s = createGame({ map, seed: 2, players: ids.map((id, i) => ({ id, color: i })) });
       const cellOf = (id: string) => {
         const p = s.players.find((o) => o.id === id)!;
@@ -181,7 +183,8 @@ describe("bot", () => {
   test("two bombing spots without a way out don't have the bot pacing between them", () => {
     // fire still burning on the only way out: neither (2,1) nor (3,1) is a safe place to drop a bomb
     const s = makeGame(["#######", "#..1+.#", "#.#+#.#", "#.....#", "#....2#", "#######"]);
-    s.flames.push({ x: 1, y: 1, ticksLeft: 20, arms: 0 }, { x: 1, y: 2, ticksLeft: 20, arms: 0 });
+    testFlame(s, 1, 1, { ticksLeft: 20 });
+    testFlame(s, 1, 2, { ticksLeft: 20 });
     const cells = new Set<number>();
     for (let i = 0; i < 15; i++) {
       play(s, ["p1"], 1);

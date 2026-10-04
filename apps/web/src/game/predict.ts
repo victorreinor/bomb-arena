@@ -1,4 +1,4 @@
-import { BUTTONS, TICK_MS, bombAt, emptyInput, pickUp, stepPlayer, type Bomb, type GameState, type Input, type InputAck, type Player, type PowerUp } from "@bomberman/engine";
+import { BUTTONS, TICK_MS, bombAt, countingDown, emptyInput, pickUp, stepPlayer, type Bomb, type GameState, type Input, type InputAck, type Player, type PowerUp } from "@bomberman/engine";
 import { bombsPlaced, type GameEvent } from "./events";
 import { lerpPlayer } from "./snapshots";
 
@@ -136,6 +136,7 @@ export class Predictor {
     const lands = this.sent.map((s) => (s.seq > this.acked ? Math.max(Math.round(s.at + this.offset!), latest.tick + 1) : -Infinity));
     const advance = () => {
       world.tick++;
+      if (countingDown(world)) return; // "Ready…": the server holds everyone still, so do we
       stepPlayer(world, me, inputAt(this.sent, lands, world.tick));
       if (!me.jump) pickUp(world, me); // in mid-air items pass underneath
     };

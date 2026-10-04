@@ -6,6 +6,9 @@ import {
   PLAYER_COLORS,
   TIME_LIMIT_OPTIONS,
   canStart,
+  getMap,
+  mapSeats,
+  tooManyForMap,
   type BotLevel,
   type ClientMsg,
   type MemberView,
@@ -16,6 +19,7 @@ import { BOT_LEVEL_NAMES, BOT_LEVEL_OPTIONS, nextBotLevel } from "../game/botLev
 import { ItemIcon, PetIcon } from "../game/ItemIcon";
 import { ITEM_INFO, PET_INFO } from "../game/items";
 import { COLOR_CSS, COLOR_NAMES } from "../game/colors";
+import { PingBadge } from "../game/PingBadge";
 import { bestOfLabel, showsScore, timeLimitLabel } from "../game/MatchTimer";
 import { HostSetting, OptionPicker, capacityOptions } from "./fields";
 import { MapPicker } from "./MapPicker";
@@ -25,10 +29,11 @@ interface Props {
   me: string;
   reconnecting: boolean;
   send: (msg: ClientMsg) => void;
+  ping: number | null;
   onLeave: () => void;
 }
 
-export function Lobby({ room, me, reconnecting, send, onLeave }: Props) {
+export function Lobby({ room, me, reconnecting, send, ping, onLeave }: Props) {
   const [copied, setCopied] = useState(false);
   const [newBotLevel, setNewBotLevel] = useState<BotLevel>(DEFAULT_BOT_LEVEL);
   useEffect(() => audio.playMusic("menu"), []);
@@ -52,12 +57,12 @@ export function Lobby({ room, me, reconnecting, send, onLeave }: Props) {
   const result = room.lastResult;
   const showScore = showsScore(room);
 
-  const startLabel =
-    connected.length < MIN_MEMBERS
-      ? `Aguardando jogadores (${connected.length}/${room.capacity})…`
-      : startable
-        ? "Iniciar partida"
-        : "Aguardando todos ficarem prontos…";
+  /** What the host's start button says: why it can't start yet, or that it can. */
+  const startLabel = () => {
+    if (connected.length < MIN_MEMBERS) return `Aguardando jogadores (${connected.length}/${room.capacity})…`;
+    if (tooManyForMap(room)) return `Esse mapa é para ${mapSeats(getMap(room.mapId))} jogadores`;
+    return startable ? "Iniciar partida" : "Aguardando todos ficarem prontos…";
+  };
 
   return (
     <div className="lobby">
@@ -69,6 +74,7 @@ export function Lobby({ room, me, reconnecting, send, onLeave }: Props) {
           </span>
         </div>
         <div className="row">
+          <PingBadge ms={ping} />
           <button className={copied ? "copied" : ""} onClick={copy}>
             {copied ? "Link copiado!" : "Copiar link de convite"}
           </button>
@@ -116,8 +122,12 @@ export function Lobby({ room, me, reconnecting, send, onLeave }: Props) {
                     🏆 {m.score}
                   </span>
                 )}
-                {m.bot && isHost && (
-                  <button className="ghost remove-bot" onClick={() => send({ t: "removeBot", id: m.id })} title="Remover bot">
+                {isHost && m.id !== me && (
+                  <button
+                    className="ghost remove-member"
+                    onClick={() => send(m.bot ? { t: "removeBot", id: m.id } : { t: "kick", id: m.id })}
+                    title={m.bot ? "Remover bot" : `Tirar ${m.name} da sala`}
+                  >
                     ✕
                   </button>
                 )}
@@ -234,7 +244,7 @@ export function Lobby({ room, me, reconnecting, send, onLeave }: Props) {
       <div className="lobby-start">
         {isHost ? (
           <button className="primary" disabled={!startable} onClick={() => send({ t: "start" })}>
-            {startLabel}
+            {startLabel()}
           </button>
         ) : (
           <button className={self?.ready ? "" : "primary"} onClick={() => send({ t: "ready", ready: !self?.ready })}>

@@ -27,9 +27,6 @@ export function TouchControls({ pad }: { pad: TouchPad }) {
     pad.dx = dir.dx;
     pad.dy = dir.dy;
   };
-  const release = () => {
-    pad.dx = pad.dy = 0;
-  };
 
   const button = (kind: "bomb" | "action" | "pet", label: string) => (
     <button
@@ -55,8 +52,8 @@ export function TouchControls({ pad }: { pad: TouchPad }) {
           steer(e);
         }}
         onPointerMove={(e) => e.buttons > 0 && steer(e)}
-        onPointerUp={release}
-        onPointerCancel={release}
+        onPointerUp={() => pad.release()}
+        onPointerCancel={() => pad.release()}
       >
         <span className="arrow up">▲</span>
         <span className="arrow left">◀</span>

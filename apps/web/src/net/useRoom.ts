@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClientMsg, ErrorCode, RoomView, ServerMsg } from "@bomberman/engine";
 import { playerId, serverUrl } from "../config";
-import { SnapshotBuffer } from "../game/snapshots";
+import { SnapshotBuffer, percentile } from "../game/snapshots";
 
 export interface RoomError {
   code: ErrorCode | "closed";
@@ -12,10 +12,20 @@ export type ConnStatus = "connecting" | "open" | "reconnecting";
 
 const MAX_RECONNECTS = 8;
 
+const sendOn = (ws: WebSocket | null, msg: ClientMsg) => {
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+};
+/** how often to measure the round trip to the server, in ms */
+const PING_EVERY_MS = 2000;
+/** the shown ping is the median of this many recent round trips, so one slow packet doesn't flash red */
+const PING_SAMPLES = 5;
+
 export function useRoom(opts: { code: string; name: string; create: boolean; capacity: number; onFatal: (e: RoomError) => void }) {
   const { code, name, create, capacity, onFatal } = opts;
   const [status, setStatus] = useState<ConnStatus>("connecting");
   const [room, setRoom] = useState<RoomView | null>(null);
+  /** round trip to the server in ms; null until measured (or with a server that doesn't answer pings) */
+  const [ping, setPing] = useState<number | null>(null);
   const buffer = useRef(new SnapshotBuffer()).current;
   const wsRef = useRef<WebSocket | null>(null);
   const fatalRef = useRef(onFatal);
@@ -27,7 +37,11 @@ export function useRoom(opts: { code: string; name: string; create: boolean; cap
     let joined = false;
     let attempt = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const trips: number[] = [];
     buffer.clear();
+    // nobody looks at the ping of a tab in the background
+    const sendPing = () => document.hidden || sendOn(wsRef.current, { t: "ping", at: performance.now() });
+    const pinger = setInterval(sendPing, PING_EVERY_MS);
 
     const fail = (error: RoomError) => {
       if (disposed) return;
@@ -49,6 +63,7 @@ export function useRoom(opts: { code: string; name: string; create: boolean; cap
       ws.onopen = () => {
         opened = true;
         attempt = 0;
+        sendPing(); // the first measure right away, not in a couple of seconds
       };
       ws.onmessage = (e) => {
         const msg = JSON.parse(String(e.data)) as ServerMsg;
@@ -57,6 +72,11 @@ export function useRoom(opts: { code: string; name: string; create: boolean; cap
           setStatus("open");
         } else if (msg.t === "room") setRoom(msg.room);
         else if (msg.t === "state") buffer.push(msg.round, msg.resultsIn, msg.game, performance.now(), msg.acks);
+        else if (msg.t === "pong") {
+          trips.push(performance.now() - msg.at);
+          if (trips.length > PING_SAMPLES) trips.shift();
+          setPing(Math.round(percentile(trips, 0.5)));
+        }
         else if (msg.t === "error") rejected = { code: msg.code, message: msg.message };
       };
       ws.onclose = (e) => {
@@ -79,15 +99,13 @@ export function useRoom(opts: { code: string; name: string; create: boolean; cap
     return () => {
       disposed = true;
       clearTimeout(timer);
+      clearInterval(pinger);
       wsRef.current?.close();
       wsRef.current = null;
     };
   }, [code, name, create, capacity, me, buffer]);
 
-  const send = useCallback((msg: ClientMsg) => {
-    const ws = wsRef.current;
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-  }, []);
+  const send = useCallback((msg: ClientMsg) => sendOn(wsRef.current, msg), []);
 
-  return { status, room, me, buffer, send };
+  return { status, room, me, buffer, send, ping };
 }

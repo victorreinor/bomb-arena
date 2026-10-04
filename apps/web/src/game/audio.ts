@@ -25,6 +25,7 @@ export type SfxName =
   | "push"
   | "haunt"
   | "hurry"
+  | "go"
   | "thud"
   | "bonk";
 import { readPref, writePref } from "../config";
@@ -455,6 +456,12 @@ class AudioEngine {
           this.tone("square", 880, t + k * 0.32, 0.13, 0.45, bus);
           this.tone("square", 1175, t + k * 0.32 + 0.15, 0.13, 0.45, bus);
         }
+        break;
+      case "go":
+        // the starting gun of "Ready… Go!": a short blip, then a bright held note an octave and a fifth up
+        this.tone("square", 784, t, 0.08, 0.45, bus);
+        this.tone("square", 1175, t + 0.09, 0.32, 0.45, bus);
+        this.tone("triangle", 1568, t + 0.09, 0.32, 0.3, bus);
         break;
       case "thud":
         this.noiseHit(t, 0.12, 700, 0.8, this.boomBus, "lowpass", 150); // a stone block slamming down

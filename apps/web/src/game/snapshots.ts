@@ -14,6 +14,12 @@ const MIN_DELAY = 1;
 const MAX_DELAY = 3;
 const START_DELAY = 2;
 
+/** The value `p` of the way up `values` once sorted (0.5: the median, 0.9: the 90th percentile). */
+export function percentile(values: number[], p: number): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length * p)];
+}
+
 export interface Sample {
   /** state with positions interpolated between the two surrounding snapshots */
   view: GameState;
@@ -103,8 +109,7 @@ export class SnapshotBuffer {
     this.transits.push(now - tick * TICK_MS);
     if (this.transits.length > TRANSIT_WINDOW) this.transits.shift();
     if (this.transits.length < MIN_SAMPLES) return;
-    const sorted = [...this.transits].sort((a, b) => a - b);
-    const late = sorted[Math.floor(sorted.length * LATE_PERCENTILE)] - sorted[0] - JITTER_SLACK_MS;
+    const late = percentile(this.transits, LATE_PERCENTILE) - Math.min(...this.transits) - JITTER_SLACK_MS;
     this.delay = Math.min(MAX_DELAY, Math.max(MIN_DELAY, MIN_DELAY + Math.ceil(late / TICK_MS)));
   }
 

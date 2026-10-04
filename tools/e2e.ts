@@ -14,6 +14,7 @@ class Client {
   acked = 0;
   states: Extract<ServerMsg, { t: "state" }>[] = [];
   errors: string[] = [];
+  pongs: number[] = [];
   closed = false;
   id = "";
 
@@ -36,6 +37,7 @@ class Client {
           this.states.push(msg);
         }
         else if (msg.t === "error") this.errors.push(msg.code);
+        else if (msg.t === "pong") this.pongs.push(msg.at);
         else if (msg.t === "welcome") this.id = msg.id;
       };
       this.ws.onopen = () => resolve();
@@ -103,6 +105,8 @@ a.send({ t: "start" });
 await until("playing", () => a.room!.phase === "playing" && a.lastState !== null && b.lastState !== null);
 check("match starts and both receive snapshots", true);
 check("chosen map is used", a.lastState!.game.mapId === "maze");
+check("the match opens with a Ready… Go! countdown", a.lastState!.game.goTick > 0);
+await until("go", () => a.lastState!.game.tick > a.lastState!.game.goTick);
 
 await c.connect(code);
 await until("C waiting", () => c.room?.members.find((m) => m.id === c.id) !== undefined);
@@ -177,6 +181,7 @@ await until("bot added", () => lean.room!.members.some((m) => m.bot));
 check("host can add a bot", lean.room!.members.length === 2);
 lean.send({ t: "start" });
 await until("lean states", () => states.length > 20);
+await until("lean go", () => lean.lastState!.game.tick > lean.lastState!.game.goTick);
 check("first snapshot carries the board", Array.isArray(states[0].game.tiles));
 check("later snapshots skip an unchanged board", states.slice(1, 10).some((s) => s.game.tiles === undefined));
 check("snapshots never carry the RNG", states.every((s) => !("rng" in s.game)));
@@ -191,6 +196,25 @@ for (let i = 0; i < 30; i++) {
 }
 check(`the bot plays on its own (${botPositions.size} positions, ${botBombs.size} bombs)`, botPositions.size > 1 || botBombs.size > 0);
 
+// pings come straight back, carrying what was sent
+lean.send({ t: "ping", at: 1234.5 });
+await until("pong", () => lean.pongs.length > 0);
+check("a ping is answered with the same stamp", lean.pongs[0] === 1234.5);
+
+// the host can send someone out: they are told why and hung up on, and the room no longer lists them
+const kHost = new Client("Kai");
+const kGuest = new Client("Kim");
+const kRoom = randomRoomCode();
+await kHost.connect(kRoom, true);
+await until("kick room", () => kHost.room !== null);
+await kGuest.connect(kRoom);
+await until("guest in", () => kHost.room!.members.length === 2);
+kHost.send({ t: "kick", id: kGuest.id });
+await until("kicked", () => kGuest.errors.length > 0 && kHost.room!.members.length === 1);
+check("a kicked player is told they were removed", kGuest.errors[0] === "removed");
+await until("kicked closed", () => kGuest.closed);
+check("and their connection is closed", kGuest.closed);
+
 // leaving is immediate: the other player sees them gone without the reconnect grace
 lean.send({ t: "leave" });
 await sleep(300);
@@ -199,6 +223,6 @@ await watcher.connect(leanRoom);
 await until("room gone or empty", () => watcher.errors.length > 0 || watcher.room !== null);
 check("after the last human leaves, the room (and its bots) is gone", watcher.errors[0] === "not_found");
 
-for (const cl of [a, b, c, d, e1, ghost, dup, h, i2, j, lean, watcher]) cl.ws?.close();
+for (const cl of [a, b, c, d, e1, ghost, dup, h, i2, j, lean, watcher, kHost, kGuest]) cl.ws?.close();
 console.log(failed === 0 ? "\nAll e2e checks passed" : `\n${failed} check(s) failed`);
 process.exit(failed === 0 ? 0 : 1);

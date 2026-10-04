@@ -53,6 +53,7 @@ describe("sudden death", () => {
     p.vest = true;
     run(s, FALL_INTERVAL_TICKS + 1);
     expect(p.alive).toBe(false);
+    expect(p.death).toEqual({ how: "crush", by: null });
     expect(s.phase).toBe("finished");
     expect(s.winner).toBe("p2");
   });

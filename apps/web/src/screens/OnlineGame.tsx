@@ -11,7 +11,8 @@ import { PredictedView, Predictor } from "../game/predict";
 import { mapInfo, musicFor } from "../game/mapInfo";
 import { Keyboard, PLAYER_KEYS } from "../game/input";
 import { HudPlayer } from "../game/PlayerStats";
-import { Podium, podiumEntries } from "../game/Podium";
+import { PingBadge } from "../game/PingBadge";
+import { Podium } from "../game/Podium";
 import { canvasSize, render } from "../game/render";
 import { MatchTimer, showsScore } from "../game/MatchTimer";
 import { playSounds } from "../game/sfx";
@@ -23,6 +24,7 @@ interface Props {
   me: string;
   buffer: SnapshotBuffer;
   send: (msg: ClientMsg) => void;
+  ping: number | null;
   onLeave: () => void;
 }
 
@@ -34,7 +36,7 @@ function mergedInput(kb: Keyboard, pads: GamepadReader, touch: TouchPad): Input 
   return combineInputs(kb.poll(0), kb.poll(1), pads.poll(0), touch.poll());
 }
 
-export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
+export function OnlineGame({ room, me, buffer, send, ping, onLeave }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [sprites, setSprites] = useState<Sprites | null>(null);
   const [hud, setHud] = useState<{ game: GameState; resultsIn: number } | null>(null);
@@ -68,6 +70,30 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
     // our own bomber runs ahead of the snapshots (see predict.ts); everything else plays back from them
     const predictor = new Predictor(me);
     const predicted = new PredictedView(me);
+    const tags = playing ? { [me]: "VOCÊ" } : {};
+
+    /** Sends what the controls say when it's news, or (until an input is acknowledged) every so often. */
+    const pushInput = (now: number) => {
+      const input = mergedInput(keyboard, pads, touch);
+      const changed = input.dx !== lastDx || input.dy !== lastDy || input.bomb || input.action || input.pet;
+      // until the server has acknowledged an input our clock isn't lined up and nothing is predicted:
+      // keep offering it one, so the first step of the match already responds at once
+      if (changed || (!predictor.synced && now - lastSentAt > SYNC_RETRY_MS)) {
+        lastDx = input.dx;
+        lastDy = input.dy;
+        lastSentAt = now;
+        sendRef.current({ t: "input", ...input, seq: predictor.record(input, now) });
+      }
+    };
+    // frames stop in a hidden tab (another tab, another app): the server would keep the last direction
+    // walking until we came back, so let go of the controls and say so now
+    const standStill = () => {
+      if (!document.hidden) return;
+      keyboard.release();
+      touch.release();
+      pushInput(performance.now());
+    };
+    if (playing) document.addEventListener("visibilitychange", standStill);
 
     const react = (events: GameEvent[], theme: TileTheme) => {
       playSounds(events, me);
@@ -76,18 +102,7 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
     };
 
     const frame = (now: number) => {
-      if (playing) {
-        const input = mergedInput(keyboard, pads, touch);
-        const changed = input.dx !== lastDx || input.dy !== lastDy || input.bomb || input.action || input.pet;
-        // until the server has acknowledged an input our clock isn't lined up and nothing is predicted:
-        // keep offering it one, so the first step of the match already responds at once
-        if (changed || (!predictor.synced && now - lastSentAt > SYNC_RETRY_MS)) {
-          lastDx = input.dx;
-          lastDy = input.dy;
-          lastSentAt = now;
-          sendRef.current({ t: "input", ...input, seq: predictor.record(input, now) });
-        }
-      }
+      if (playing) pushInput(now);
       const sample = buffer.sample(now);
       if (sample) {
         const theme = mapInfo(sample.latest.mapId).theme;
@@ -109,7 +124,7 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
           canvas.height = size.height;
           sized = true;
         }
-        render(ctx, shown.view, sprites, now, effects);
+        render(ctx, shown.view, sprites, now, effects, tags);
         // snapshots arrive at 30 Hz but frames at 60: only look at the HUD when there is something new
         if (sample.latest !== lastLatest || buffer.resultsIn !== lastResultsIn) {
           lastLatest = sample.latest;
@@ -128,6 +143,7 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
     return () => {
       cancelAnimationFrame(raf);
       detach();
+      document.removeEventListener("visibilitychange", standStill);
     };
   }, [sprites, playing, buffer, me, pads, touch]);
 
@@ -135,14 +151,18 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
   const nameOf = (id: string) => room.members.find((m) => m.id === id)?.name ?? "(saiu)";
   const finished = game?.phase === "finished" ? game : undefined;
   const winner = finished?.players.find((p) => p.id === finished.winner);
-  const podium = finished ? podiumEntries(finished, nameOf) : [];
   const secondsLeft = hud && hud.resultsIn > 0 ? Math.ceil(hud.resultsIn / TICK_RATE) : null;
   const haunting = game?.phase === "playing" && game.players.some((p) => p.id === me && !p.alive && p.ghost);
 
   return (
     <GameFrame
       title={`Sala ${room.code}`}
-      timer={game && <MatchTimer game={game} />}
+      status={
+        <>
+          {game && <MatchTimer game={game} />}
+          <PingBadge ms={ping} />
+        </>
+      }
       players={game?.players.map((p) => (
         <HudPlayer
           key={p.id}
@@ -168,7 +188,7 @@ export function OnlineGame({ room, me, buffer, send, onLeave }: Props) {
         finished && (
           <div className="overlay podium-overlay">
             <h2>{winner ? `${nameOf(winner.id)} venceu!` : "Empate!"}</h2>
-            <Podium entries={podium} />
+            <Podium game={finished} nameOf={nameOf} />
             {room.lastResult?.seriesWon && <p className="champion-banner">🏆 {room.lastResult.winnerName} venceu a série!</p>}
             {showsScore(room) && <p>Placar: {room.members.map((m) => `${m.name} ${m.score}`).join(" · ")}</p>}
             {secondsLeft !== null && <p>Voltando ao lobby em {secondsLeft}s…</p>}

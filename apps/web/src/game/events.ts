@@ -1,4 +1,4 @@
-import { ABILITY_FIELDS, DIR_VEC, TILE, borderRing, fallOrder, type AbilityKind, type Bomb, type Dir, type GameState, type PetKind, type Player, type PowerUpKind } from "@bomberman/engine";
+import { ABILITY_FIELDS, DIR_VEC, TILE, borderRing, countingDown, fallOrder, type AbilityKind, type Bomb, type Dir, type GameState, type PetKind, type Player, type PowerUpKind } from "@bomberman/engine";
 
 /** What a bomber is caught doing for a moment (the sprite strikes the pose) */
 export type ActionPose = "kick" | "punch" | "throw" | "place";
@@ -29,6 +29,8 @@ export type GameEvent =
   | { type: "pose"; id: string; pose: ActionPose }
   | { type: "haunt"; x: number; y: number }
   | { type: "hurry" }
+  /** the countdown is over: everyone can move */
+  | { type: "go" }
   | { type: "blockFall"; cells: { x: number; y: number }[] }
   | { type: "finish"; winner: string | null };
 
@@ -133,6 +135,7 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
     else if (kind) events.push({ type: "pickup", id: p.id, x: p.x, y: p.y, kind });
   }
 
+  if (countingDown(prev) && !countingDown(next)) events.push({ type: "go" });
   if (prev.timeLeft !== null && prev.timeLeft > 0 && next.timeLeft === 0) events.push({ type: "hurry" });
   if (next.fallen > prev.fallen) {
     const cells = fallOrder(next.width, next.height)

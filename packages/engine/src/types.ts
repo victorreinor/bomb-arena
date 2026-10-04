@@ -103,6 +103,8 @@ export interface Player {
   holding: number | null;
   /** tick at which they were eliminated; null while alive */
   diedAt: number | null;
+  /** how they went out: a blast (and whose bomb it was, their own included), a falling block, or leaving */
+  death: { how: DeathCause; by: string | null } | null;
   /** the mount being ridden; it takes the next hit instead of the rider */
   pet: { kind: PetKind; cooldown: number; dashTicks: number } | null;
   /** revenge mode: after dying, a ghost on the outer wall (index into borderRing) that throws bombs in */
@@ -110,6 +112,8 @@ export interface Player {
   /** mid-air (jumper pet): position goes from `from` to `to`, untouchable until landing */
   jump: { fromX: number; fromY: number; toX: number; toY: number; ticks: number; total: number } | null;
 }
+
+export type DeathCause = "blast" | "crush" | "left";
 
 /** Power-ups that switch on a permanent ability, and the Player flag each one sets. */
 export const ABILITY_FIELDS = {
@@ -164,6 +168,8 @@ export interface Flame {
   y: number;
   ticksLeft: number;
   arms: number;
+  /** whose bomb's blast this is (the latest to reach the tile): who gets the credit if it catches someone */
+  owner: string;
 }
 
 export interface PowerUp {
@@ -177,7 +183,7 @@ export interface MapDef {
   name: string;
   /**
    * ASCII rows. `#` hard block, `+` soft block, `o` soft block with probability
-   * `softDensity`, `.` empty, `1`-`4` player spawn points.
+   * `softDensity`, `.` empty, `1`-`4` player spawn points (as many players as spawns).
    */
   rows: string[];
   softDensity: number;
@@ -206,6 +212,8 @@ export interface GameState {
   timeLeft: number | null;
   /** how many cells of the sudden-death spiral have been filled */
   fallen: number;
+  /** the tick play starts after: until then nobody moves and the clock waits (the "Ready… Go!" countdown) */
+  goTick: number;
 }
 
 export interface CreateGameOptions {
@@ -216,4 +224,6 @@ export interface CreateGameOptions {
   revenge?: boolean;
   /** match length before sudden death, in ticks; omit or null for no limit */
   timeLimitTicks?: number | null;
+  /** ticks of "Ready… Go!" before anyone can move (0, the default, starts at once) */
+  countdownTicks?: number;
 }

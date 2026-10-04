@@ -39,15 +39,16 @@ export class Keyboard {
   attach(): () => void {
     window.addEventListener("keydown", this.onDown);
     window.addEventListener("keyup", this.onUp);
-    window.addEventListener("blur", this.reset);
+    window.addEventListener("blur", this.release);
     return () => {
       window.removeEventListener("keydown", this.onDown);
       window.removeEventListener("keyup", this.onUp);
-      window.removeEventListener("blur", this.reset);
+      window.removeEventListener("blur", this.release);
     };
   }
 
-  private reset = () => {
+  /** Lets go of every held key (focus lost: their key-ups would never arrive). */
+  release = () => {
     this.stacks = this.bindings.map(() => []);
   };
 

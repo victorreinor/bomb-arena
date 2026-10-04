@@ -5,25 +5,11 @@ import {
   inputAcks,
   joinRoom,
   stepRoom,
-  TILE,
   type Bomb,
   type ClientMsg,
   type RoomState,
 } from "../src";
-import { testBomb } from "./helpers";
-
-/** A started 2-player match on a plain corridor, driven only through client messages. */
-function match(): RoomState {
-  const room = createRoom("BCDFG", 2);
-  joinRoom(room, "u1", "A");
-  joinRoom(room, "u2", "B");
-  handleClientMessage(room, "u2", { t: "ready", ready: true }, () => 1);
-  expect(handleClientMessage(room, "u1", { t: "start" }, () => 1)).toBe(true);
-  // open the arena up: remove soft blocks so nothing gets in the way
-  const g = room.game!;
-  g.tiles = g.tiles.map((t) => (t === TILE.SOFT ? TILE.EMPTY : t));
-  return room;
-}
+import { startedMatch as match, testBomb } from "./helpers";
 
 const send = (room: RoomState, msg: ClientMsg, id = "u1") => handleClientMessage(room, id, msg, () => 1);
 const tick = (room: RoomState, n = 1) => {

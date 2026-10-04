@@ -27,15 +27,15 @@ function RoomScreen({ code, name, create, capacity, onLeave, onFatal }: {
   onLeave: () => void;
   onFatal: (e: RoomError) => void;
 }) {
-  const { status, room, me, buffer, send } = useRoom({ code, name, create, capacity, onFatal });
+  const { status, room, me, buffer, send, ping } = useRoom({ code, name, create, capacity, onFatal });
   if (!room) return <div className="screen"><p className="notice">Conectando…</p></div>;
   // tell the room we're going (no reconnect grace), then close the connection by leaving the screen
   const leave = () => {
     send({ t: "leave" });
     onLeave();
   };
-  if (room.phase === "playing") return <OnlineGame room={room} me={me} buffer={buffer} send={send} onLeave={leave} />;
-  return <Lobby room={room} me={me} reconnecting={status === "reconnecting"} send={send} onLeave={leave} />;
+  if (room.phase === "playing") return <OnlineGame room={room} me={me} buffer={buffer} send={send} ping={ping} onLeave={leave} />;
+  return <Lobby room={room} me={me} reconnecting={status === "reconnecting"} send={send} ping={ping} onLeave={leave} />;
 }
 
 export function App() {

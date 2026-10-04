@@ -1,6 +1,6 @@
 import type { BotLevel } from "./bot";
 import { TICK_RATE } from "./constants";
-import type { GameState, Tile } from "./types";
+import type { Flame, GameState, Tile } from "./types";
 
 export const MIN_MEMBERS = 2;
 export const MAX_MEMBERS = 4;
@@ -84,6 +84,10 @@ export type ClientMsg =
   | { t: "addBot"; level?: BotLevel }
   | { t: "botLevel"; id: string; level: BotLevel }
   | { t: "removeBot"; id: string }
+  /** the host sends someone (not a bot: see removeBot) out of the room */
+  | { t: "kick"; id: string }
+  /** answered at once with a pong carrying the same `at`, to measure the round trip */
+  | { t: "ping"; at: number }
   | { t: "start" }
   /** `seq` numbers the input so the client can tell which of its inputs a snapshot already includes */
   | { t: "input"; dx: number; dy: number; bomb: boolean; action: boolean; pet: boolean; seq?: number };
@@ -91,27 +95,42 @@ export type ClientMsg =
 /** [seq, tick]: an input the server is applying, and the tick it was first applied on */
 export type InputAck = [seq: number, tick: number];
 
-export type ErrorCode = "not_found" | "exists" | "full" | "bad_request" | "replaced";
+export type ErrorCode = "not_found" | "exists" | "full" | "bad_request" | "replaced" | "removed";
 
 export type ServerMsg =
   | { t: "welcome"; id: string }
   | { t: "room"; room: RoomView }
   /** `acks`: per player, the input (by `seq`) their bomber moves by and the tick it took over; only those that changed */
   | { t: "state"; round: number; resultsIn: number; game: GameSnapshot; acks?: Record<string, InputAck> }
+  | { t: "pong"; at: number }
   | { t: "error"; code: ErrorCode; message: string };
 
 /**
  * What goes over the wire every tick: the game minus what clients never use (the RNG, so nobody can
- * predict drops, and the bomb id counter) and with `tiles` only when they changed.
+ * predict drops, the bomb id counter, whose blast each flame is) and with `tiles` only when they changed.
  */
-export type GameSnapshot = Omit<GameState, "tiles" | "rng" | "nextBombId"> & { tiles?: Tile[] };
+export type GameSnapshot = Omit<GameState, "tiles" | "rng" | "nextBombId" | "flames"> & {
+  tiles?: Tile[];
+  flames: Omit<Flame, "owner">[];
+};
 
 export function toSnapshot(game: GameState, withTiles: boolean): GameSnapshot {
-  const { rng: _rng, nextBombId: _next, tiles, ...rest } = game;
-  return withTiles ? { ...rest, tiles } : rest;
+  const { rng: _rng, nextBombId: _next, tiles, flames, ...rest } = game;
+  const lean = { ...rest, flames: flames.map(({ owner: _owner, ...f }) => f) };
+  return withTiles ? { ...lean, tiles } : lean;
 }
 
-/** Rebuilds a full state from a snapshot and the last tiles received. */
+/**
+ * Rebuilds a full state from a snapshot and the last tiles received. Flames come without their owner
+ * (only the server credits knockouts), and a server from before the countdown sends no `goTick`.
+ */
 export function fromSnapshot(snap: GameSnapshot, lastTiles: Tile[]): GameState {
-  return { ...snap, tiles: snap.tiles ?? lastTiles, rng: 0, nextBombId: 0 };
+  return {
+    ...snap,
+    tiles: snap.tiles ?? lastTiles,
+    flames: snap.flames.map((f) => ({ ...f, owner: "" })),
+    goTick: snap.goTick ?? 0,
+    rng: 0,
+    nextBombId: 0,
+  };
 }

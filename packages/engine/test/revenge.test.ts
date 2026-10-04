@@ -16,7 +16,7 @@ import {
   type GameState,
   type MapDef,
 } from "../src";
-import { run } from "./helpers";
+import { run, testFlame } from "./helpers";
 
 /** An open 9x7 arena with three players, revenge on unless said otherwise. */
 function arena(revenge = true): GameState {
@@ -27,7 +27,7 @@ function arena(revenge = true): GameState {
 
 function burn(s: GameState, id: string) {
   const p = s.players.find((o) => o.id === id)!;
-  s.flames.push({ x: Math.floor(p.x), y: Math.floor(p.y), arms: 0, ticksLeft: 3 });
+  testFlame(s, Math.floor(p.x), Math.floor(p.y), { ticksLeft: 3 });
   step(s);
 }
 

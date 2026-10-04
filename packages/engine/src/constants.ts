@@ -7,6 +7,8 @@ export const TICK_MS = 1000 / TICK_RATE;
 export const PLAYER_RADIUS = 0.38;
 
 export const BOMB_FUSE_TICKS = 3 * TICK_RATE;
+/** "Ready… Go!" at the start of a match: nobody moves for this long */
+export const START_COUNTDOWN_TICKS = 2 * TICK_RATE;
 export const FLAME_TICKS = Math.round(0.6 * TICK_RATE);
 
 export const START_BOMBS = 1;

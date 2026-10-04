@@ -58,6 +58,9 @@ export function playSounds(events: GameEvent[], me?: string) {
       case "hurry":
         audio.sfx("hurry");
         break;
+      case "go":
+        audio.sfx("go");
+        break;
       case "blockFall":
         audio.sfx("thud");
         break;

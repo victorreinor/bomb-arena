@@ -35,7 +35,7 @@ import {
   THROW_DISTANCE,
   TICK_RATE,
 } from "./constants";
-import { SPAWN_ORDER } from "./maps";
+import { SPAWN_ORDER, isSpawn } from "./maps";
 import { nextRandom, pickRandom } from "./rng";
 import {
   ABILITY_FIELDS,
@@ -48,7 +48,9 @@ import {
   isAbility,
   type Bomb,
   type CreateGameOptions,
+  type DeathCause,
   type Dir,
+  type Flame,
   type GameState,
   type Input,
   type Inputs,
@@ -81,8 +83,8 @@ export function wrap(v: number, size: number): number {
   return ((v % size) + size) % size;
 }
 
-function flameAt(state: GameState, x: number, y: number): boolean {
-  return state.flames.some((f) => f.x === x && f.y === y);
+function flameAt(state: GameState, x: number, y: number): Flame | undefined {
+  return state.flames.find((f) => f.x === x && f.y === y);
 }
 
 function burnFlames(state: GameState) {
@@ -91,7 +93,7 @@ function burnFlames(state: GameState) {
 }
 
 export function createGame(opts: CreateGameOptions): GameState {
-  const { map, players, seed, revenge = false, timeLimitTicks = null } = opts;
+  const { map, players, seed, revenge = false, timeLimitTicks = null, countdownTicks = 0 } = opts;
   const height = map.rows.length;
   const width = map.rows[0].length;
   const state: GameState = {
@@ -111,6 +113,7 @@ export function createGame(opts: CreateGameOptions): GameState {
     revenge,
     timeLeft: timeLimitTicks,
     fallen: 0,
+    goTick: countdownTicks,
   };
 
   const spawns: { x: number; y: number }[] = [];
@@ -121,7 +124,7 @@ export function createGame(opts: CreateGameOptions): GameState {
       if (ch === "#") state.tiles[i] = TILE.HARD;
       else if (ch === "+") state.tiles[i] = TILE.SOFT;
       else if (ch === "o") state.tiles[i] = nextRandom(state) < map.softDensity ? TILE.SOFT : TILE.EMPTY;
-      else if (ch >= "1" && ch <= "9") spawns[Number(ch) - 1] = { x, y };
+      else if (isSpawn(ch)) spawns[Number(ch) - 1] = { x, y };
     });
   });
 
@@ -157,6 +160,7 @@ export function createGame(opts: CreateGameOptions): GameState {
       disease: null,
       holding: null,
       diedAt: null,
+      death: null,
       pet: null,
       jump: null,
       ghost: null,
@@ -183,10 +187,11 @@ export function playerSpeed(p: Player): number {
   return base;
 }
 
-/** Eliminate a player (blast, disconnect...); a carried bomb is dropped where they stood. */
-export function killPlayer(state: GameState, p: Player) {
+/** Eliminate a player (blast, falling block, leaving); a carried bomb is dropped where they stood. */
+export function killPlayer(state: GameState, p: Player, how: DeathCause, by: string | null = null) {
   p.alive = false;
   p.diedAt = state.tick;
+  p.death = { how, by };
   p.moving = false;
   p.disease = null;
   p.pet = null;
@@ -260,12 +265,19 @@ export function pickUp(state: GameState, p: Player) {
   state.powerUps.splice(pu, 1);
 }
 
+/** Whether the match is still in its "Ready… Go!" countdown: nobody moves and the clock waits. */
+export const countingDown = (state: GameState) => state.tick <= state.goTick;
+
+/** How many others went out in a blast of `id`'s bombs. */
+export const knockoutsBy = (state: GameState, id: string) => state.players.filter((p) => p.id !== id && p.death?.by === id).length;
+
 export function step(state: GameState, inputs: Inputs = {}): void {
   state.tick++;
   if (state.phase !== "playing") {
     burnFlames(state); // let the last flames burn out so the final frame doesn't freeze mid-blast
     return;
   }
+  if (countingDown(state)) return;
 
   for (const p of state.players) {
     if (p.alive) stepPlayer(state, p, inputs[p.id]);
@@ -285,7 +297,8 @@ export function step(state: GameState, inputs: Inputs = {}): void {
     if (!p.alive || p.jump) continue; // in mid-air: flames and items pass underneath
     const tx = Math.floor(p.x);
     const ty = Math.floor(p.y);
-    if (p.invuln === 0 && flameAt(state, tx, ty)) {
+    const flame = p.invuln === 0 ? flameAt(state, tx, ty) : undefined;
+    if (flame) {
       // the mount takes the hit first, then the vest; otherwise it's over
       if (p.pet) {
         p.pet = null;
@@ -294,7 +307,7 @@ export function step(state: GameState, inputs: Inputs = {}): void {
         p.vest = false;
         p.invuln = INVULN_TICKS;
       } else {
-        eliminate(state, p);
+        eliminate(state, p, "blast", flame.owner);
         continue;
       }
     }
@@ -313,8 +326,8 @@ export function step(state: GameState, inputs: Inputs = {}): void {
 }
 
 /** Killed in play (blast or falling block): in revenge mode they come back as a ghost on the wall. */
-function eliminate(state: GameState, p: Player) {
-  killPlayer(state, p);
+function eliminate(state: GameState, p: Player, how: Exclude<DeathCause, "left">, by: string | null) {
+  killPlayer(state, p, how, by);
   if (state.revenge) p.ghost = { pos: nearestBorderIndex(state, p.x, p.y), moveTimer: 0, cooldown: GHOST_THROW_COOLDOWN_TICKS };
 }
 
@@ -366,7 +379,7 @@ function suddenDeath(state: GameState) {
   for (const p of state.players) {
     if (!p.alive || !overlapsTile(p.x, p.y, x, y)) continue;
     if (Math.floor(p.x) === x && Math.floor(p.y) === y) {
-      eliminate(state, p); // nothing saves you from a falling block: not the pet, not the vest
+      eliminate(state, p, "crush", null); // nothing saves you from a falling block: not the pet, not the vest
     } else {
       // brushing the cell from the next one: nudge back to the middle so they can still move
       p.x = Math.floor(p.x) + 0.5;
@@ -725,13 +738,14 @@ function updatePassing(state: GameState, p: Player) {
   });
 }
 
-function addFlame(state: GameState, x: number, y: number, arms: number) {
-  const existing = state.flames.find((f) => f.x === x && f.y === y);
+function addFlame(state: GameState, x: number, y: number, arms: number, owner: string) {
+  const existing = flameAt(state, x, y);
   if (existing) {
     existing.arms |= arms;
     existing.ticksLeft = FLAME_TICKS;
+    existing.owner = owner;
   } else {
-    state.flames.push({ x, y, arms, ticksLeft: FLAME_TICKS });
+    state.flames.push({ x, y, arms, ticksLeft: FLAME_TICKS, owner });
   }
   const pu = state.powerUps.findIndex((u) => u.x === x && u.y === y);
   if (pu >= 0) state.powerUps.splice(pu, 1);
@@ -771,7 +785,7 @@ function explode(state: GameState, start: Bomb) {
         const hit = state.bombs.find((o) => o.x === x && o.y === y && !o.flight && !exploded.has(o.id));
         const stops = tile === TILE.SOFT || hit !== undefined;
         const last = stops || i === bomb.range;
-        addFlame(state, x, y, d.back | (last ? 0 : d.arm));
+        addFlame(state, x, y, d.back | (last ? 0 : d.arm), bomb.owner);
         if (i === 1) centerArms |= d.arm;
         if (tile === TILE.SOFT) {
           burnt.add(y * state.width + x);
@@ -783,7 +797,7 @@ function explode(state: GameState, start: Bomb) {
         }
       }
     }
-    addFlame(state, bomb.x, bomb.y, centerArms);
+    addFlame(state, bomb.x, bomb.y, centerArms, bomb.owner);
   }
 
   state.bombs = state.bombs.filter((b) => !exploded.has(b.id));

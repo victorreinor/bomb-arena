@@ -16,7 +16,8 @@ interface Props {
   title: ReactNode;
   /** a line of key hints, on computers */
   hint?: ReactNode;
-  timer: ReactNode;
+  /** beside the title: the match clock and, online, the connection */
+  status: ReactNode;
   players: ReactNode;
   /** news about this player (watching, turned into a ghost, an error); on phones it sits on the board */
   notice?: ReactNode;
@@ -35,12 +36,12 @@ export function GameFrame(props: Props) {
   return phone ? <PhoneFrame {...props} /> : <DesktopFrame {...props} />;
 }
 
-function DesktopFrame({ title, hint, timer, players, notice, canvasRef, size, overlay, onLeave }: Props) {
+function DesktopFrame({ title, hint, status, players, notice, canvasRef, size, overlay, onLeave }: Props) {
   return (
     <div className="game-page">
       <div className="game-top">
         <h1>{title}</h1>
-        {timer}
+        {status}
         <button className="ghost" onClick={onLeave}>
           Sair
         </button>
@@ -65,7 +66,7 @@ const TIP_MS = 7000;
  * The board takes the biggest size that fits what's left (see styles.css, "phones"). Sideways is the
  * phone turned, or, where the browser can't turn the screen for us, the page turned by hand.
  */
-function PhoneFrame({ title, timer, players, notice, canvasRef, size, overlay, pad, onLeave }: Props) {
+function PhoneFrame({ title, status, players, notice, canvasRef, size, overlay, pad, onLeave }: Props) {
   const landscape = useMedia("(orientation: landscape)");
   const installed = useMedia(installedQuery);
   const full = useFullscreen();
@@ -111,7 +112,7 @@ function PhoneFrame({ title, timer, players, notice, canvasRef, size, overlay, p
     <div className={`game-page touch${landscape || turned ? " sideways" : ""}${turned ? " turned" : ""}`}>
       <div className="game-top">
         <h1>{title}</h1>
-        {timer}
+        {status}
         {turn && (
           <button onClick={turn.act} title={turn.title}>
             {turn.label}

@@ -146,16 +146,22 @@ export class Room {
     } catch {
       return;
     }
+    // a ping is about the connection, not the room: answer straight away
+    if (msg?.t === "ping") return typeof msg.at === "number" ? this.send(ws, { t: "pong", at: msg.at }) : undefined;
     this.dirty = handleClientMessage(room, session.id, msg, randomSeed) || this.dirty;
-    this.hangUpNonMembers(room);
+    this.hangUpNonMembers(room, msg?.t === "kick");
   }
 
-  /** Whoever is no longer a member (left, removed...) stops getting updates and is hung up on. */
-  private hangUpNonMembers(room: RoomState) {
+  /**
+   * Whoever is no longer a member stops getting updates and is hung up on. After a kick they are told
+   * why, so their client goes home instead of reconnecting.
+   */
+  private hangUpNonMembers(room: RoomState, kicked = false) {
     for (const [ws, session] of this.sessions) {
       if (room.members.some((m) => m.id === session.id)) continue;
       this.sessions.delete(ws);
-      ws.close(1000, "left");
+      if (kicked) this.reject(ws, "removed", "O anfitrião tirou você da sala.");
+      else ws.close(1000, "left");
     }
   }
 

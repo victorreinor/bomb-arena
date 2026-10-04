@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { MAPS, getMap, wrap, type MapDef } from "@bomberman/engine";
+import { GRID_W, MAPS, MAX_MEMBERS, getMap, mapSeats, wrap, type MapDef } from "@bomberman/engine";
+import { ACCENT_INK } from "../game/colors";
 import { mapInfo } from "../game/mapInfo";
 import { TILE_PX, TILE_THEMES, drawTile, load, loaded, tileName, tileSheetUrl } from "../game/sprites";
 
@@ -40,7 +41,7 @@ export function MapPreview({ map }: { map: MapDef }) {
           g.globalAlpha = 1;
         } else if (ch >= "1" && ch <= "4") {
           g.fillStyle = "#ffd23a";
-          g.strokeStyle = "#1a1204";
+          g.strokeStyle = ACCENT_INK;
           g.lineWidth = 2;
           g.beginPath();
           g.arc(x * TILE_PX + 8, y * TILE_PX + 8, 4.5, 0, Math.PI * 2);
@@ -57,6 +58,8 @@ export function MapPreview({ map }: { map: MapDef }) {
       className="map-preview"
       width={map.rows[0].length * TILE_PX}
       height={map.rows.length * TILE_PX}
+      // a smaller arena shows smaller, next to the full-size ones
+      style={{ width: `${(100 * map.rows[0].length) / GRID_W}%` }}
       aria-label={`Prévia do mapa ${map.name}`}
     />
   );
@@ -71,6 +74,7 @@ export function MapPicker({ selected, editable, onSelect }: { selected: string; 
   const index = Math.max(0, MAPS.findIndex((m) => m.id === map.id));
   const info = mapInfo(map.id);
   const stats = mapStats(map);
+  const seats = mapSeats(map);
   const go = (step: number) => onSelect(MAPS[wrap(index + step, MAPS.length)].id);
 
   // every map's tiles, ready before anyone flips to it
@@ -114,6 +118,7 @@ export function MapPicker({ selected, editable, onSelect }: { selected: string; 
       <div key={map.id} className="map-text">
         <div className="map-caption">
           <b>{map.name}</b> <span className="tag">{info.level}</span>
+          {seats < MAX_MEMBERS && <span className="tag"> · só {seats} jogadores</span>}
           {!editable && <span className="muted"> · escolhido pelo anfitrião</span>}
         </div>
         <p className="map-info">

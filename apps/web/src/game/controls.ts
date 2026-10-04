@@ -63,6 +63,11 @@ export class TouchPad {
     this.queued[button] = true;
   }
 
+  /** Lets go of the d-pad. */
+  release() {
+    this.dx = this.dy = 0;
+  }
+
   poll(): Input {
     const out = { dx: this.dx, dy: this.dy, ...this.queued };
     this.queued = { bomb: false, action: false, pet: false };

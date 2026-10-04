@@ -1,7 +1,7 @@
 import { DEFAULT_BOT_LEVEL, botId, botInput, botName, isBotLevel, type BotLevel } from "./bot";
-import { TICK_RATE } from "./constants";
+import { START_COUNTDOWN_TICKS, TICK_RATE } from "./constants";
 import { createGame, killPlayer, step } from "./game";
-import { getMap, isMapId } from "./maps";
+import { getMap, isMapId, mapSeats } from "./maps";
 import {
   BEST_OF_OPTIONS,
   DEFAULT_TIME_LIMIT,
@@ -133,7 +133,7 @@ function addMember(room: RoomState, id: string, name: string, bot: BotLevel | nu
 /** Every way out of the room (leaving, timing out, being dropped at a round boundary, a bot removed) goes through here. */
 function removeMember(room: RoomState, id: string) {
   const player = room.game?.players.find((p) => p.id === id);
-  if (player?.alive) killPlayer(room.game!, player); // the dead keep their place in the ranking
+  if (player?.alive) killPlayer(room.game!, player, "left"); // the dead keep their place in the ranking
   room.members = room.members.filter((m) => m.id !== id);
   delete room.inputs[id];
   delete room.scores[id];
@@ -251,6 +251,14 @@ export function removeBot(room: RoomState, id: string, botMemberId: string): boo
   return true;
 }
 
+/** The host sends a person out of the room, between matches (the server then hangs up on them). */
+export function kickMember(room: RoomState, id: string, target: string): boolean {
+  const m = member(room, target);
+  if (!hostInLobby(room, id) || !m || m.bot || target === id) return false;
+  removeMember(room, target);
+  return true;
+}
+
 /** Leaving on purpose: gone at once (no reconnect grace); in a match their bomber is out. */
 export function leaveRoom(room: RoomState, id: string): boolean {
   if (!member(room, id)) return false;
@@ -258,13 +266,18 @@ export function leaveRoom(room: RoomState, id: string): boolean {
   return true;
 }
 
-/** The host may start once at least two connected players are in and all of them are ready. */
+/** Whether the room has more players than the chosen map has spawns for (a one-on-one map with three in). */
+export const tooManyForMap = (room: { mapId: string; members: Pick<MemberView, "connected">[] }) =>
+  room.members.filter((m) => m.connected).length > mapSeats(getMap(room.mapId));
+
+/** The host may start once at least two connected players are in, all of them ready, and the map has room for them. */
 export function canStart(room: {
   phase: RoomView["phase"];
   hostId: string | null;
+  mapId: string;
   members: Pick<MemberView, "id" | "connected" | "ready" | "bot">[];
 }): boolean {
-  if (room.phase !== "lobby") return false;
+  if (room.phase !== "lobby" || tooManyForMap(room)) return false;
   const connected = room.members.filter((m) => m.connected);
   return connected.length >= MIN_MEMBERS && connected.every((m) => isReady(room, m));
 }
@@ -280,7 +293,14 @@ export function startGame(room: RoomState, id: string, seed: number): boolean {
   if (room.lastResult?.seriesWon) room.scores = {}; // a new series begins
   const players = room.members.map((m) => ({ id: m.id, color: m.color }));
   const timeLimitTicks = room.timeLimit > 0 ? minutesToTicks(room.timeLimit) : null;
-  room.game = createGame({ map: getMap(room.mapId), players, seed, revenge: room.revenge, timeLimitTicks });
+  room.game = createGame({
+    map: getMap(room.mapId),
+    players,
+    seed,
+    revenge: room.revenge,
+    timeLimitTicks,
+    countdownTicks: START_COUNTDOWN_TICKS,
+  });
   room.phase = "playing";
   room.round++;
   room.inputs = {};
@@ -339,6 +359,8 @@ export function handleClientMessage(room: RoomState, id: string, msg: ClientMsg,
       return setBotLevel(room, id, msg.id, msg.level);
     case "removeBot":
       return removeBot(room, id, msg.id);
+    case "kick":
+      return kickMember(room, id, msg.id);
     case "start":
       return startGame(room, id, newSeed());
     default:

@@ -7,15 +7,13 @@ import {
   PET_COOLDOWN_TICKS,
   PET_KINDS,
   TILE,
-  createRoom,
   handleClientMessage,
-  joinRoom,
   step,
   stepRoom,
   type GameState,
   type PetKind,
 } from "../src";
-import { corridor, makeGame, run, testBomb } from "./helpers";
+import { corridor, makeGame, run, startedMatch, testBomb, testFlame } from "./helpers";
 
 
 function mount(s: GameState, kind: PetKind, i = 0) {
@@ -45,7 +43,7 @@ describe("taking a hit while riding", () => {
   test("the pet is lost, the rider survives and is briefly invulnerable", () => {
     const s = makeGame(corridor("1.........2"));
     mount(s, "jumper");
-    s.flames.push({ x: 1, y: 1, arms: 0, ticksLeft: 5 });
+    testFlame(s, 1, 1, { ticksLeft: 5 });
     step(s);
     const p = s.players[0];
     expect(p.alive).toBe(true);
@@ -57,7 +55,7 @@ describe("taking a hit while riding", () => {
     const s = makeGame(corridor("1.........2"));
     mount(s, "runner");
     s.players[0].vest = true;
-    s.flames.push({ x: 1, y: 1, arms: 0, ticksLeft: 5 });
+    testFlame(s, 1, 1, { ticksLeft: 5 });
     step(s);
     expect(s.players[0].pet).toBeNull();
     expect(s.players[0].vest).toBe(true);
@@ -68,10 +66,10 @@ describe("taking a hit while riding", () => {
     mount(s, "runner", 1);
     s.players[1].invuln = 0;
     // two blasts in a row: the first costs the pet, the second (after invulnerability) the life
-    s.flames.push({ x: 3, y: 1, arms: 0, ticksLeft: 2 });
+    testFlame(s, 3, 1, { ticksLeft: 2 });
     step(s);
     s.players[1].invuln = 0;
-    s.flames.push({ x: 3, y: 1, arms: 0, ticksLeft: 2 });
+    testFlame(s, 3, 1, { ticksLeft: 2 });
     step(s);
     expect(s.players[1].alive).toBe(false);
     expect(s.players[1].pet).toBeNull();
@@ -114,7 +112,7 @@ describe("jumper (hop)", () => {
     p.facing = "right";
     step(s, { p1: { pet: true } });
     expect(p.jump).not.toBeNull();
-    s.flames.push({ x: 3, y: 1, arms: 0, ticksLeft: JUMP_TICKS });
+    testFlame(s, 3, 1, { ticksLeft: JUMP_TICKS });
     run(s, JUMP_TICKS - 1);
     expect(p.alive).toBe(true);
     run(s, 2);
@@ -213,13 +211,8 @@ describe("cooldowns", () => {
 
 describe("online", () => {
   test("the pet key travels through client messages", () => {
-    const room = createRoom("BCDFG", 2);
-    joinRoom(room, "u1", "A");
-    joinRoom(room, "u2", "B");
-    handleClientMessage(room, "u2", { t: "ready", ready: true }, () => 1);
-    handleClientMessage(room, "u1", { t: "start" }, () => 1);
+    const room = startedMatch();
     const g = room.game!;
-    g.tiles = g.tiles.map((t) => (t === TILE.SOFT ? TILE.EMPTY : t));
     g.players[0].pet = { kind: "runner", cooldown: 0, dashTicks: 0 };
     g.players[0].facing = "right";
     handleClientMessage(room, "u1", { t: "input", dx: 0, dy: 0, bomb: false, action: false, pet: true }, () => 1);

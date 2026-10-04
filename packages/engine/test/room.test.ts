@@ -3,9 +3,11 @@ import {
   GRID_H,
   GRID_W,
   MAPS,
+  mapSeats,
   RECONNECT_GRACE_TICKS,
   RESULTS_TICKS,
   TILE,
+  addBot,
   canStart,
   createGame,
   createRoom,
@@ -22,8 +24,11 @@ import {
   setReady,
   startGame,
   stepRoom,
+  tooManyForMap,
+  START_COUNTDOWN_TICKS,
   type RoomState,
 } from "../src";
+import { pastCountdown, send } from "./helpers";
 
 function lobby(names: string[]): RoomState {
   const room = createRoom("BCDFG");
@@ -35,17 +40,16 @@ function startedRoom(count = 2): RoomState {
   const room = lobby(["A", "B", "C", "D"].slice(0, count));
   for (const m of room.members) setReady(room, m.id, true);
   expect(startGame(room, "u1", 1)).toBe(true);
+  pastCountdown(room);
   return room;
 }
 
 describe("maps", () => {
   test.each(MAPS.map((m) => [m.id, m] as const))("%s: every spawn and open tile is reachable", (_, map) => {
-    expect(map.rows).toHaveLength(GRID_H);
-    map.rows.forEach((r) => expect(r).toHaveLength(GRID_W));
     const game = createGame({
       map: { ...map, softDensity: 1 },
       seed: 1,
-      players: [0, 1, 2, 3].map((i) => ({ id: `p${i}`, color: i })),
+      players: Array.from({ length: mapSeats(map) }, (_, i) => ({ id: `p${i}`, color: i })),
     });
     const seen = new Set<number>();
     const queue = [game.players[0]];
@@ -247,5 +251,50 @@ describe("capacity", () => {
     for (const m of room.members) setReady(room, m.id, true);
     startGame(room, "u1", 1);
     expect(setCapacity(room, "u1", 4)).toBe(false);
+  });
+});
+
+describe("sending someone out", () => {
+  test("only the host, only between matches, only people (bots go with removeBot), never themselves", () => {
+    const room = lobby(["A", "B", "C"]);
+    addBot(room, "u1");
+    const bot = room.members.find((m) => m.bot)!;
+    expect(send(room, "u2", { t: "kick", id: "u3" })).toBe(false);
+    expect(send(room, "u1", { t: "kick", id: "u1" })).toBe(false);
+    expect(send(room, "u1", { t: "kick", id: bot.id })).toBe(false);
+    expect(send(room, "u1", { t: "kick", id: "u3" })).toBe(true);
+    expect(room.members.map((m) => m.id)).toEqual(["u1", "u2", bot.id]);
+
+    for (const m of room.members) setReady(room, m.id, true);
+    startGame(room, "u1", 1);
+    expect(send(room, "u1", { t: "kick", id: "u2" })).toBe(false);
+  });
+});
+
+describe("one-on-one maps", () => {
+  test("can be picked with more in the room, but a match there only starts with two", () => {
+    const room = lobby(["A", "B", "C"]);
+    for (const m of room.members) setReady(room, m.id, true);
+    expect(setMap(room, "u1", "duel")).toBe(true);
+    expect(tooManyForMap(roomView(room))).toBe(true);
+    expect(canStart(roomView(room))).toBe(false);
+    expect(startGame(room, "u1", 1)).toBe(false);
+    send(room, "u3", { t: "leave" });
+    expect(startGame(room, "u1", 1)).toBe(true);
+    expect([room.game!.width, room.game!.height]).toEqual([11, 9]);
+  });
+});
+
+describe("match start", () => {
+  test("a match in a room opens with the Ready… Go! countdown", () => {
+    const room = lobby(["A", "B"]);
+    setReady(room, "u2", true);
+    startGame(room, "u1", 1);
+    expect(room.game!.goTick).toBe(START_COUNTDOWN_TICKS);
+  });
+
+  test("pings are the server's to answer: the room ignores them", () => {
+    const room = lobby(["A", "B"]);
+    expect(send(room, "u1", { t: "ping", at: 5 })).toBe(false);
   });
 });

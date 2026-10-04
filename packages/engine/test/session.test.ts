@@ -14,7 +14,7 @@ import {
   toSnapshot,
   type RoomState,
 } from "../src";
-import { send } from "./helpers";
+import { pastCountdown, send } from "./helpers";
 
 function lobby(n = 2): RoomState {
   const room = createRoom("BCDFG", 4);
@@ -25,6 +25,7 @@ function lobby(n = 2): RoomState {
 function start(room: RoomState) {
   for (const m of room.members) if (m.id !== room.hostId) send(room, m.id, { t: "ready", ready: true });
   expect(send(room, room.hostId!, { t: "start" })).toBe(true);
+  pastCountdown(room);
 }
 
 /** Ends the running match with `winner` alive and everyone else dead, then waits out the podium. */
@@ -49,6 +50,7 @@ describe("leaving", () => {
     send(room, "u3", { t: "leave" });
     const p3 = room.game!.players.find((p) => p.id === "u3")!;
     expect(p3.alive).toBe(false);
+    expect(p3.death).toEqual({ how: "left", by: null });
     expect(p3.ghost).toBeNull();
     expect(room.members.some((m) => m.id === "u3")).toBe(false);
   });
@@ -151,7 +153,7 @@ describe("timing out after dying", () => {
     const game = room.game!;
     const p2 = game.players.find((p) => p.id === "u2")!;
     for (let i = 0; i < 5; i++) stepRoom(room);
-    killPlayer(game, p2);
+    killPlayer(game, p2, "blast");
     const diedAt = p2.diedAt;
     disconnect(room, "u2"); // closes the tab after dying
     for (let i = 0; i < RECONNECT_GRACE_TICKS + 5; i++) stepRoom(room);

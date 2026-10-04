@@ -4,6 +4,7 @@ import {
   DEFAULT_TIME_LIMIT,
   MAPS,
   PET_KINDS,
+  START_COUNTDOWN_TICKS,
   TICK_MS,
   TICK_RATE,
   botId,
@@ -11,6 +12,7 @@ import {
   botName,
   createGame,
   isBotId,
+  mapSeats,
   minutesToTicks,
   randomSeed,
   step,
@@ -31,7 +33,7 @@ import { mapInfo, musicFor } from "./mapInfo";
 import { Keyboard, PLAYER_KEYS } from "./input";
 import { MatchTimer } from "./MatchTimer";
 import { HudPlayer } from "./PlayerStats";
-import { Podium, podiumEntries } from "./Podium";
+import { Podium } from "./Podium";
 import { canvasSize, render } from "./render";
 import { playSounds } from "./sfx";
 import { lerpState } from "./snapshots";
@@ -41,14 +43,16 @@ const KEY_HINTS = ["WASD · Espaço · Shift esq. · E (pet)", "Setas · Enter �
 
 /** how many bots the practice mode puts against you */
 const PRACTICE_BOTS = 3;
+const FOUR_SEATS = MAPS.filter((m) => mapSeats(m) > PRACTICE_BOTS);
 
 const newGame = (bots: BotLevel | null): GameState => {
   // handy for trying things out: ?itens=todos starts with items and pets, ?pet=<kind> picks the pet,
   // ?vinganca=1 turns revenge mode on, ?tempo=<seconds> shortens the clock (to try sudden death)
   const params = new URLSearchParams(location.search);
   const state = createGame({
-    // practice against bots on a random map; two people on one keyboard play the classic
-    map: bots ? MAPS[Math.floor(Math.random() * MAPS.length)] : CLASSIC,
+    // practice against bots on a random map with room for all four; two people on one keyboard play the classic
+    map: bots ? FOUR_SEATS[Math.floor(Math.random() * FOUR_SEATS.length)] : CLASSIC,
+    countdownTicks: START_COUNTDOWN_TICKS,
     revenge: params.get("vinganca") === "1",
     timeLimitTicks: Number(params.get("tempo")) * TICK_RATE || minutesToTicks(DEFAULT_TIME_LIMIT),
     seed: randomSeed(),
@@ -91,6 +95,8 @@ export function LocalGame({ bots, onLeave }: { bots: BotLevel | null; onLeave: (
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d")!;
     const state = newGame(bots);
+    // against bots the human is "you"; two people sharing a keyboard are told apart by number
+    const tags: Record<string, string> = bots ? { p1: "VOCÊ" } : { p1: "J1", p2: "J2" };
     const size = canvasSize(state);
     canvas.width = size.width;
     canvas.height = size.height;
@@ -130,7 +136,7 @@ export function LocalGame({ bots, onLeave }: { bots: BotLevel | null; onLeave: (
         feel(events, bots ? "p1" : undefined); // against bots the human is p1; two at one keyboard share the phone
         acc -= TICK_MS;
       }
-      render(ctx, lerpState(previous, current, acc / TICK_MS), sprites, now, effects);
+      render(ctx, lerpState(previous, current, acc / TICK_MS), sprites, now, effects, tags);
       // ticks come at 30 Hz, frames at 60: the HUD can only have changed when a tick ran
       const key = ticked ? hudKey(current) : lastHudKey;
       if (key !== lastHudKey) {
@@ -165,7 +171,6 @@ export function LocalGame({ bots, onLeave }: { bots: BotLevel | null; onLeave: (
     if (isBotId(id)) return `🤖 ${botName(id)}`;
     return bots ? "Você" : `J${i + 1} ${COLOR_NAMES[game.players[i].color]}`;
   };
-  const podium = finished ? podiumEntries(finished, (id) => label(finished, id)) : [];
 
   return (
     <GameFrame
@@ -181,7 +186,7 @@ export function LocalGame({ bots, onLeave }: { bots: BotLevel | null; onLeave: (
         )
       }
       hint={<p>{bots ? "WASD/setas, Espaço/Enter, Shift, E · ou controle." : "Dois jogadores no mesmo teclado."} R reinicia.</p>}
-      timer={hud && <MatchTimer game={hud} />}
+      status={hud && <MatchTimer game={hud} />}
       players={hud?.players.map((p, i) => (
         <HudPlayer
           key={p.id}
@@ -202,7 +207,7 @@ export function LocalGame({ bots, onLeave }: { bots: BotLevel | null; onLeave: (
         finished && (
           <div className="overlay podium-overlay">
             <h2>{winner ? `${COLOR_NAMES[winner.color]} venceu!` : "Empate!"}</h2>
-            <Podium entries={podium} />
+            <Podium game={finished} nameOf={(id) => label(finished, id)} />
             <button onClick={restart}>
               Jogar de novo<span className="desktop-only"> (R)</span>
             </button>

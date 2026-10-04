@@ -16,7 +16,7 @@ import {
   type GameState,
   type PowerUpKind,
 } from "../src";
-import { corridor, makeGame, run, testBomb } from "./helpers";
+import { corridor, makeGame, run, testBomb, testFlame } from "./helpers";
 
 
 
@@ -57,7 +57,7 @@ describe("kick", () => {
     const s = makeGame(corridor("1..........2"));
     s.players[0].kick = true;
     testBomb(s, 3, 1);
-    s.flames.push({ x: 6, y: 1, arms: 0, ticksLeft: 60 });
+    testFlame(s, 6, 1, { ticksLeft: 60 });
     run(s, 30, { p1: { dx: 1 } });
     expect(s.bombs).toHaveLength(0);
   });
@@ -176,7 +176,7 @@ describe("glove", () => {
     s.players[0].glove = true;
     step(s, { p1: { bomb: true } });
     step(s, { p1: { action: true } });
-    killPlayer(s, s.players[0]);
+    killPlayer(s, s.players[0], "blast");
     expect(s.bombs[0].held).toBeNull();
     expect(s.players[0].holding).toBeNull();
   });
@@ -294,17 +294,17 @@ describe("vest", () => {
     const s = makeGame(corridor("1.........2"));
     const p = s.players[0];
     p.vest = true;
-    s.flames.push({ x: 1, y: 1, arms: 0, ticksLeft: 5 });
+    testFlame(s, 1, 1, { ticksLeft: 5 });
     step(s);
     expect(p.alive).toBe(true);
     expect(p.vest).toBe(false);
     expect(p.invuln).toBeGreaterThan(INVULN_TICKS - 3);
 
-    s.flames.push({ x: 1, y: 1, arms: 0, ticksLeft: 5 });
+    testFlame(s, 1, 1, { ticksLeft: 5 });
     step(s);
     expect(p.alive).toBe(true); // invulnerable
     p.invuln = 0;
-    s.flames.push({ x: 1, y: 1, arms: 0, ticksLeft: 5 });
+    testFlame(s, 1, 1, { ticksLeft: 5 });
     step(s);
     expect(p.alive).toBe(false);
   });
@@ -375,7 +375,7 @@ describe("skull", () => {
   test("dying clears the curse", () => {
     const s = makeGame(corridor("1.........2"));
     curse(s, "slow");
-    killPlayer(s, s.players[0]);
+    killPlayer(s, s.players[0], "blast");
     expect(s.players[0].disease).toBeNull();
   });
 });
