@@ -10,6 +10,7 @@ import {
   REMOTE_FUSE_TICKS,
   START_RANGE,
   STUN_TICKS,
+  bombsLaid,
   killPlayer,
   playerSpeed,
   step,
@@ -410,6 +411,17 @@ describe("line bomb and power bomb", () => {
     step(s, { p1: { bomb: true } });
     expect(s.bombs).toHaveLength(1);
     expect(p.lineCharges).toBe(1);
+  });
+
+  test("bombsLaid tells what a press would lay, without laying it: a row ahead with a line charge, else one bomb", () => {
+    const s = makeGame(corridor("1..+......2"));
+    const p = s.players[0];
+    p.bombsMax = 4;
+    expect(bombsLaid(s, p).map((b) => b.x)).toEqual([1]);
+    p.lineCharges = 1;
+    expect(bombsLaid(s, p, "right").map((b) => b.x)).toEqual([1, 2, 3]);
+    expect(bombsLaid(s, p, "up").map((b) => [b.x, b.y])).toEqual([[1, 1]]); // a wall ahead: only the one underfoot
+    expect(s.bombs).toHaveLength(0);
   });
 
   test("power bomb: the first bomb of a set has maximum range", () => {

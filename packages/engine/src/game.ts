@@ -566,26 +566,43 @@ export function blastCells(state: GameState, x: number, y: number, range: number
   return cells;
 }
 
+/** Line bomb: the tiles every spare bomb goes on, one apart, from (x, y) the way `facing` points; none without a charge and two bombs to spare. */
+function lineTiles(state: GameState, p: Player, facing: Dir, x: number, y: number): { x: number; y: number }[] {
+  const available = p.bombsMax - p.bombsActive;
+  if (p.lineCharges <= 0 || available < 2) return [];
+  const d = DIR_VEC[facing];
+  const tiles: { x: number; y: number }[] = [];
+  for (let i = 0; i < available && canPlaceAt(state, x + d.dx * i, y + d.dy * i); i++) tiles.push({ x: x + d.dx * i, y: y + d.dy * i });
+  return tiles;
+}
+
+/**
+ * The bombs a press of the bomb key would lay with the player on (x, y) facing `facing`: one underfoot or,
+ * with a line charge, a row of them ahead. Bots plan their way out from this, so a row doesn't shut them in.
+ */
+export function bombsLaid(
+  state: GameState,
+  p: Player,
+  facing: Dir = p.facing,
+  x = Math.floor(p.x),
+  y = Math.floor(p.y),
+): { x: number; y: number; range: number }[] {
+  const line = lineTiles(state, p, facing, x, y);
+  if (line.length > 0) return line.map((t) => ({ ...t, range: baseRange(p) }));
+  return canPlaceAt(state, x, y) ? [{ x, y, range: bombRangeFor(p) }] : [];
+}
+
 function placeBomb(state: GameState, p: Player) {
   if (p.holding !== null) return void throwBomb(state, p); // pressing bomb again lobs the one you carry
   if (!canDropBomb(p)) return;
-  const available = p.bombsMax - p.bombsActive;
 
-  const range = baseRange(p);
   const tx = Math.floor(p.x);
   const ty = Math.floor(p.y);
 
-  if (p.lineCharges > 0 && available >= 2) {
-    // line bomb: every spare bomb, one tile apart, in the direction we face
-    const d = DIR_VEC[p.facing];
-    let placed = 0;
-    for (let i = 0; i < available && canPlaceAt(state, tx + d.dx * i, ty + d.dy * i); i++) {
-      newBomb(state, p, tx + d.dx * i, ty + d.dy * i, range);
-      placed++;
-    }
-    if (placed >= 2) p.lineCharges--;
-    if (placed > 0) return;
-  }
+  const line = lineTiles(state, p, p.facing, tx, ty);
+  for (const t of line) newBomb(state, p, t.x, t.y, baseRange(p));
+  if (line.length >= 2) p.lineCharges--;
+  if (line.length > 0) return;
 
   if (!canPlaceAt(state, tx, ty)) return;
   const power = isPowerBomb(p);

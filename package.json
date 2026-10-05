@@ -16,6 +16,7 @@
     "sprites": "bun tools/make-sprites.ts",
     "dev:server": "bun run --cwd apps/server dev",
     "e2e": "bun tools/e2e.ts",
+    "bench:bots": "bun tools/bot-bench.ts",
     "dev:all": "bun run --filter './apps/*' dev"
   },
   "devDependencies": {

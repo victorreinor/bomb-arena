@@ -5,9 +5,11 @@ import {
   CLASSIC,
   GHOST_THROW_COOLDOWN_TICKS,
   MAPS,
+  PLAYER_RADIUS,
   mapSeats,
   TILE,
   TICK_RATE,
+  blastCells,
   botInput,
   borderRing,
   canStart,
@@ -18,6 +20,7 @@ import {
   stepRoom,
   dangerMap,
   step,
+  stepTowards,
   type BotLevel,
   type Inputs,
 } from "../src";
@@ -53,7 +56,20 @@ describe("danger map", () => {
     const d = dangerMap(s);
     expect(d[1 * s.width + 6]).toBe(10); // reached by bomb 2, which bomb 1 sets off at tick 10
   });
+
+  test("a bot's view of it can take a blast for shorter than it is, or miss that one bomb sets off another", () => {
+    const s = makeGame(["#########", "#1.....2#", "#########"]);
+    testBomb(s, 2, 1, { owner: "p1", ticksLeft: 10 });
+    testBomb(s, 4, 1, { owner: "p1", ticksLeft: 80 });
+    const at = (d: number[], x: number) => d[1 * s.width + x];
+    expect(at(dangerMap(s, { chains: () => false }), 6)).toBe(80);
+    const short = dangerMap(s, { reach: () => 1 }); // neither reaches the other now
+    expect([at(short, 3), at(short, 5), at(short, 6)]).toEqual([10, 80, Infinity]);
+  });
 });
+
+/** A corridor that one bomb sets all alight, with pockets to duck into; p2 out of reach in a corridor of its own. */
+const POCKETS = ["#####################", "#.........2.........#", "#####################", "#.........1.........#", "####.###.###.###.####", "#####################"];
 
 describe("bot", () => {
   test("bombs the brick next to it and gets out of the way", () => {
@@ -92,8 +108,9 @@ describe("bot", () => {
   });
 
   // They used to drop a bomb, run to safety, head back through the blast, run again... over and over;
-  // or pace between two cells as their goal flipped. Other people's bombs take a moment to be noticed,
-  // so the blast check sticks to the bot's own bombs, which it always knows about.
+  // or pace between two cells as their goal flipped. Other people's bombs they may be slow to see or get
+  // wrong, so the blast check sticks to the bot's own, which it always knows about; and to steps it chose
+  // to take: on ice a slide can carry it on against its will.
   test.each(MAPS.flatMap((m) => BOT_LEVELS.map((level) => [m.id, level, m] as const)))(
     "on %s, %s bots never walk into their own blast and never pace about with nothing going on",
     (_, level, map) => {
@@ -112,10 +129,23 @@ describe("bot", () => {
         for (const id of ids) inputs[id] = botInput(s, id, level);
         const alive = ids.filter((id) => s.players.find((o) => o.id === id)!.alive);
         const calm = alive.filter((id) => danger[cellOf(id)] === Infinity && !inputs[id]!.bomb);
-        const own = new Map(calm.map((id) => [id, dangerMap(s, (b) => b.owner === id)]));
+        const own = new Map(
+          calm.map((id) => [
+            id,
+            new Set([
+              ...s.bombs.filter((b) => b.owner === id && !b.flight && !b.held).flatMap((b) => blastCells(s, b.x, b.y, b.range, b.pierce)),
+              ...s.flames.filter((f) => f.owner === id).map((f) => f.y * s.width + f.x),
+            ]),
+          ]),
+        );
         const from = new Map(alive.map((id) => [id, cellOf(id)]));
         step(s, inputs);
-        walkedIn += calm.filter((id) => cellOf(id) !== from.get(id) && own.get(id)![cellOf(id)] !== Infinity).length;
+        const steered = (id: string) => {
+          const to = cellOf(id) - from.get(id)!;
+          if (Math.abs(to) !== 1 && Math.abs(to) !== s.width) return true; // came out of a portal: its choice too
+          return Math.sign(inputs[id]!.dx ?? 0) === Math.sign(to % s.width) && Math.sign(inputs[id]!.dy ?? 0) === Math.sign(Math.trunc(to / s.width));
+        };
+        walkedIn += calm.filter((id) => cellOf(id) !== from.get(id) && own.get(id)!.has(cellOf(id)) && steered(id)).length;
 
         // pacing: back and forth between two cells, 6+ times in 3 s, with no bomb out, no danger, no curse
         for (const id of alive) {
@@ -154,6 +184,25 @@ describe("bot", () => {
     expect(easy).toBeLessThan(60);
   });
 
+  // what makes a level easy or hard is how often it gets this wrong, not how fast it walks
+  test("the easier the bot, the oftener a bomb laid at its side catches it, though there's a pocket to duck into", () => {
+    const caught = (level: BotLevel) => {
+      let n = 0;
+      for (let seed = 1; seed <= 60; seed++) {
+        const s = makeGame(POCKETS, 2, seed);
+        testBomb(s, 11, 3, { ticksLeft: BOMB_FUSE_TICKS, range: 20 });
+        play(s, ["p1"], BOMB_FUSE_TICKS + 5, level);
+        if (!s.players[0].alive) n++;
+      }
+      return n;
+    };
+    const [easy, normal, hard] = BOT_LEVELS.map(caught);
+    expect(hard).toBeLessThanOrEqual(3);
+    expect(normal).toBeGreaterThan(hard);
+    expect(easy).toBeGreaterThan(2 * normal);
+    expect(easy).toBeLessThan(30); // and still gets away more often than not
+  });
+
   test("its own bomb it runs from at once", () => {
     expect(botInput(onOwnBomb(), "p1", "easy").dx).not.toBe(0);
   });
@@ -167,6 +216,51 @@ describe("bot", () => {
     };
     expect(run(true)).toBe(run(false));
     expect(run(true)).not.toBe(3.5);
+  });
+
+  // it faces its way out as it lays a bomb, and a line charge used to lay the row straight across it
+  test("with a line charge it doesn't lay the row across its own way out", () => {
+    const s = makeGame(["#######", "#1+...#", "#.#.#.#", "#.....#", "#....2#", "#######"]);
+    Object.assign(s.players[0], { bombsMax: 3, lineCharges: 1 });
+    play(s, ["p1"], 200, "hard");
+    expect(s.players[0].alive).toBe(true);
+    expect(s.tiles[1 * s.width + 2]).toBe(TILE.EMPTY);
+  });
+
+  // rounding had a bot pressed against a wall "lining up" with a nudge sideways, which on ice is a slide all the way
+  test("pressed flush against a wall it counts as lined up", () => {
+    const s = makeGame(corridor("1....2"));
+    const p = s.players[0];
+    p.y = 1.5 + 0.5 - PLAYER_RADIUS;
+    expect(stepTowards(p, 1 * s.width + 2, s.width)).toMatchObject({ dx: 1, dy: 0 });
+  });
+
+  // the margin it likes to keep used to be all or nothing: with less time than that it stood and waited for the blast
+  test("with no time for its usual margin, it still makes a dash for the pocket", () => {
+    const s = makeGame(["#############", "#####.1.#####", "#####.#.#####", "#############", "#.....2.....#", "#############"]);
+    const bomb = testBomb(s, 6, 1, { ticksLeft: 24, range: 10 });
+    s.players[0].passing.push(bomb.id);
+    play(s, ["p1"], 60, "hard");
+    expect(s.players[0].alive).toBe(true);
+  });
+
+  test("minding the enemy at its side, a hard bot backs out of a dead end and bombs from where it can get away", () => {
+    // p1 between p2 and a brick: a bomb there hits both, but p2 need only lay one too to shut p1 in
+    const firstBomb = (level: BotLevel) => {
+      const s = makeGame(corridor("....21+"));
+      for (let t = 0; t < 6 * TICK_RATE && s.bombs.length === 0; t++) step(s, { p1: botInput(s, "p1", level) });
+      return s.bombs[0]?.x;
+    };
+    expect(firstBomb("easy")).toBe(6);
+    expect(firstBomb("hard")).toBeLessThan(6); // past p2 first, with the open corridor behind it
+  });
+
+  test("alone on a real map, a hard bot doesn't blow itself up", () => {
+    for (let seed = 1; seed <= 8; seed++) {
+      const s = createGame({ map: CLASSIC, seed, players: [{ id: "bot", color: 0 }, { id: "idle", color: 1 }] });
+      play(s, ["bot"], 45 * TICK_RATE, "hard");
+      expect([seed, s.players[0].alive]).toEqual([seed, true]);
+    }
   });
 
   // it used to stand there pressing the bomb key forever: no bomb may be laid inside a brick
