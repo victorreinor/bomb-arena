@@ -129,6 +129,18 @@ describe("portals", () => {
     }
   });
 
+  test("on every map each portal end has a tile beside it that's always clear, so nobody comes out walled in", () => {
+    for (const map of MAPS) {
+      map.rows.forEach((row, y) =>
+        [...row].forEach((ch, x) => {
+          if (ch < "A" || ch > "Z") return;
+          const beside = [map.rows[y - 1][x], map.rows[y + 1][x], row[x - 1], row[x + 1]];
+          expect([map.id, x, y, beside.some((c) => !"#+o=".includes(c))]).toEqual([map.id, x, y, true]);
+        }),
+      );
+    }
+  });
+
   test("nobody can lay a bomb on one", () => {
     const s = makeGame(corridor("1A..A.2"));
     expect(canPlaceAt(s, 2, 1)).toBe(false);

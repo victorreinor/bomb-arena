@@ -136,7 +136,10 @@ export const ASSEMBLY: MapDef = {
   softDensity: 0.7,
 };
 
-/** Portals: three pairs that link the far sides of the arena. */
+/**
+ * Portals: three pairs that link the far sides of the arena. No bomb can be laid on a portal, so each end
+ * has a tile beside it that's always clear: whoever comes out can step off, bomb and step back in.
+ */
 export const PORTALS: MapDef = {
   id: "portals",
   name: "Portais",
@@ -144,6 +147,9 @@ export const PORTALS: MapDef = {
     [7, 1, "A"], [7, 11, "A"],
     [1, 5, "B"], [13, 7, "B"],
     [5, 5, "C"], [9, 7, "C"],
+    [7, 2, "."], [7, 10, "."],
+    [2, 5, "."], [12, 7, "."],
+    [6, 5, "."], [8, 7, "."],
   ]),
   softDensity: 0.7,
 };
