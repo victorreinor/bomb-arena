@@ -25,6 +25,7 @@ Use Bun (`bun install`) e o Node do `.nvmrc` (24.21.0). Rode tudo a partir da ra
 | `bun run typecheck` | `tsc` na engine, no cliente e no servidor |
 | `bun run build` | Build de produção do cliente (é o que a Vercel roda) |
 | `bun run e2e [ws://localhost:8787]` | Teste ponta a ponta contra um servidor rodando |
+| `bun run bench:bots [seção…]` | Benchmark dos bots (~1,5 min): quanto cada nível erra, se defende e ataca, contra as metas em `tools/bot-bench.ts` |
 | `bun run sprites` | Gera de novo os PNGs em `apps/web/public/sprites` e as figuras do README em `.github/readme` |
 | `cd apps/server && bunx wrangler deploy` | Publica o servidor (quem roda é o usuário, veja abaixo) |
 
@@ -35,7 +36,7 @@ O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja 
 - `packages/engine`: regras do jogo, salas, protocolo e bots, em TypeScript puro e determinístico. Servidor e cliente rodam o mesmo código.
 - `apps/server`: o Worker roteia `/ws/<CÓDIGO>` para um Durable Object `Room` (uma sala por objeto), que roda o loop de 30 Hz.
 - `apps/web`: React 19 + Vite + Canvas 2D. O React cuida das telas e do HUD; o jogo é desenhado num loop de `requestAnimationFrame`.
-- `tools`: o gerador de sprites (`make-sprites.ts` com `bomber-art.ts`, `pet-art.ts`, `tile-art.ts` e `png.ts`) e o `e2e.ts`.
+- `tools`: o gerador de sprites (`make-sprites.ts` com `bomber-art.ts`, `pet-art.ts`, `tile-art.ts` e `png.ts`), o `e2e.ts` e o `bot-bench.ts` (benchmark dos bots).
 - `docs`: o roadmap, as decisões, a arquitetura e `sprites-feitas.html` (as três propostas de boneco; a escolhida foi a "Clássico").
 - `.github/readme`: as figuras do README. As sprites ampliadas saem do `bun run sprites`; o `gameplay.gif` é a gravação de uma partida contra bots, refeita à mão quando o visual mudar muito.
 
@@ -78,7 +79,7 @@ O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja 
 - Os `acks` (`[seq, tick]` por jogador) só vêm quando mudam, e o cliente os acumula em `SnapshotBuffer.acks`. O `seq` começa em `Date.now()` para nunca ficar abaixo do de uma aba anterior.
 - O Durable Object é criado fora da América do Sul (a Cloudflare não os hospeda lá), então a ida e volta a partir do Brasil leva ~140 ms. Por isso existem a predição e a reserva adaptável. Não "conserte" isso trocando de região.
 - `bombAt` só devolve bombas que bloqueiam a casa: ignora as minas enterradas. Para saber se há qualquer bomba no chão (para não pôr outra em cima, por exemplo), use `groundBombAt`.
-- A memória dos bots fica num `WeakMap` cuja chave é o `GameState`, e o dado aleatório deles é próprio: as escolhas dos bots não podem consumir `state.rng`. Para comparar níveis, jogue contra os bots; bot contra bot engana.
+- A memória dos bots fica num `WeakMap` cuja chave é o `GameState`, e o dado aleatório deles é próprio: as escolhas dos bots não podem consumir `state.rng`. Para comparar níveis, rode `bun run bench:bots` e jogue contra eles; bot contra bot é só um indício.
 - O workerd loga "Network connection lost" quando o servidor fecha uma conexão antes do cliente. Por isso o cliente desliga sozinho ao receber `error`, e o servidor só fecha depois de 1 s (`HANG_UP_GRACE_MS`). A resposta ao fechamento do cliente vem da flag `web_socket_auto_reply_to_close` do `wrangler.toml`: sem ela o navegador nunca dá a conexão por fechada. O `bun run e2e` ainda mostra o log, de propósito: o cliente dele não desliga sozinho, para testar o fechamento pelo servidor.
 - Celular se confere emulando toque (`isMobile`/`hasTouch` no Puppeteer ou o modo dispositivo do DevTools): o layout do celular só liga com `pointer: coarse`, então uma janela estreita no computador não mostra ele. Teste em pé e deitado, e com a altura de um celular com a barra do navegador (~412x625).
 - Captura de tela reduzida engana em pixel art (cores e contornos somem). Confira em tamanho real antes de concluir que a arte está errada.
@@ -91,7 +92,7 @@ O cliente se conecta a `ws://<host>:8787`, a menos que `VITE_SERVER_URL` esteja 
 | Regras, física, explosões, itens, pets | `packages/engine/src/game.ts` (números em `constants.ts`) |
 | Mapas | `packages/engine/src/maps.ts` + `apps/web/src/game/mapInfo.ts` |
 | Chão especial (esteira, gelo, portal, lava) e caixotes | `packages/engine/src/game.ts` (seção "special floors"), `bot.ts` (`stepPath`, `dangerMap`), `apps/web/src/game/sprites.ts` (`drawFloor`), `tools/floor-art.ts` |
-| Bots e níveis | `packages/engine/src/bot.ts` (`PROFILES`) |
+| Bots e níveis | `packages/engine/src/bot.ts` (`PROFILES`); mexeu, rode `bun run bench:bots` e compare com as metas (`TARGETS` em `tools/bot-bench.ts`) |
 | Lobby, salas, série, mensagens | `packages/engine/src/room.ts` + `protocol.ts` |
 | Loop do servidor, transmissão, limites | `apps/server/src/room.ts`, `apps/server/src/index.ts` |
 | Partida online (rede, predição, buffer) | `apps/web/src/screens/OnlineGame.tsx`, `game/predict.ts`, `game/snapshots.ts`, `net/useRoom.ts` |

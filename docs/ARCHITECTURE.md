@@ -32,7 +32,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 | `game.ts` | `createGame`, `step` (um tick), `stepPlayer`, `pickUp`, bombas (perfurante, de borracha, minas: `isBuried`, `bombAt` só vê as que bloqueiam, `groundBombAt` vê também as enterradas), explosões, chute/soco/luva, quique na cabeça, pets, vingança, sudden death, ranking |
 | `room.ts` | Sala: membros, anfitrião, cor, pronto, vagas, bots, opções, série/placar, reconexão (10 s), `handleClientMessage`, `stepRoom`, `inputAcks`, `roomView` |
 | `protocol.ts` | Mensagens `ClientMsg`/`ServerMsg`, `RoomView`, `toSnapshot`/`fromSnapshot` (com as mudanças do protocolo 2), `PROTOCOL_VERSION`, códigos de sala |
-| `bot.ts` | Mapa de perigo (`dangerMap`, com a lava 2 s antes de explodir), decisão (`botInput`), caminhos (`explore`, que já desliza no gelo e atravessa portais, `stepPath`), níveis em `PROFILES` |
+| `bot.ts` | Mapa de perigo (`dangerMap`, com a lava 2 s antes de explodir; aceita um `BombView` com o que o bot notou e como ele avalia cada bomba), percepção (`glance`: o que o bot faz de cada bomba, sorteado uma vez), decisão (`botInput`), fuga (`shelter`) e plano de plantar (`planDrop`, que conta com a bomba em linha e com as bombas que o inimigo ao lado poderia pôr), caminhos (`explore`, que já desliza no gelo e atravessa portais, `stepPath`), níveis em `PROFILES`. Medido por `tools/bot-bench.ts` (`bun run bench:bots`) |
 | `rng.ts` | mulberry32 (`nextRandom`, `randomSeed`) |
 | `ratelimit.ts` | `TokenBucket` (limite de mensagens e de conexões) |
 
@@ -49,7 +49,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 ### Sala (`room.ts`)
 
-`RoomState` guarda membros (`Member`, com `bot: BotLevel | null`), anfitrião, opções (mapa, vagas, vingança, melhor de N, tempo), placar, o jogo em andamento (`game`) e os comandos atuais de cada jogador (`inputs`, com `seq` e `since`). `stepRoom` remove quem passou dos 10 s desconectado, pede comandos aos bots, roda `step`, apaga os botões (eles valem um tick só) e, no fim da partida, conta pontos e volta ao lobby após 10 s de pódio. Quem entra com a partida em andamento assiste e joga a próxima (`inGame: false`).
+`RoomState` guarda membros (`Member`, com `bot: BotLevel | null`), anfitrião, opções (mapa, vagas, vingança, melhor de N, tempo), placar, o jogo em andamento (`game`) e os comandos atuais de cada jogador (`inputs`, com `seq` e `since`). `stepRoom` remove quem passou dos 10 s desconectado, pede comandos aos bots, corta o relógio para 20 s se só sobraram bots vivos (`hurryBotsAlone`, que o treino local também chama), roda `step`, apaga os botões (eles valem um tick só) e, no fim da partida, conta pontos e volta ao lobby após 10 s de pódio. Quem entra com a partida em andamento assiste e joga a próxima (`inGame: false`).
 
 ## apps/server
 
