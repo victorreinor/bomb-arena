@@ -4,6 +4,7 @@ import {
   BELT_CARRY_TICKS,
   BELT_SPEED,
   BOMB_FUSE_TICKS,
+  BOTS_ONLY_TICKS,
   BOUNCE_TICKS,
   DASH_FACTOR,
   DASH_TICKS,
@@ -384,6 +385,19 @@ export function fallOrder(width: number, height: number): number[] {
 }
 
 /** Counts the match clock down; once it hits zero, blocks drop one by one and crush what is underneath. */
+/**
+ * With the people out and only bots left alive, nobody is left to wait for them to settle it: the clock is
+ * cut to BOTS_ONLY_TICKS (in a match with no time limit too) and sudden death does the rest. Not in revenge
+ * mode, where the people who fell are still playing, as ghosts. Whoever runs the match calls this before
+ * each step and says who the bots are; the rules themselves don't know.
+ */
+export function hurryBotsAlone(state: GameState, isBot: (id: string) => boolean): void {
+  if (state.phase !== "playing" || state.revenge) return;
+  if (state.timeLeft !== null && state.timeLeft <= BOTS_ONLY_TICKS) return;
+  const people = state.players.filter((p) => !isBot(p.id));
+  if (people.length > 0 && !people.some((p) => p.alive)) state.timeLeft = BOTS_ONLY_TICKS;
+}
+
 function suddenDeath(state: GameState) {
   if (state.timeLeft === null) return;
   if (state.timeLeft > 0) {

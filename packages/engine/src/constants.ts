@@ -79,6 +79,8 @@ export const GHOST_THROW_COOLDOWN_TICKS = 2 * TICK_RATE;
 export const GHOST_BOMB_RANGE = 2;
 /** sudden death: once time is up, one block drops every this many ticks, spiralling inwards */
 export const FALL_INTERVAL_TICKS = 4;
+/** with the people out and only bots left alive, the clock is cut to this: nobody is left to wait for them */
+export const BOTS_ONLY_TICKS = 20 * TICK_RATE;
 /** kicker: its bombs slide one tile every tick */
 export const PET_KICK_INTERVAL_TICKS = 1;
 export const FAST_FACTOR = 1.9;

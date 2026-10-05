@@ -23,6 +23,8 @@ import {
   createGame,
   dangerMap,
   emptyInput,
+  hurryBotsAlone,
+  isBotId,
   isBuried,
   killPlayer,
   nextRandom,
@@ -426,6 +428,7 @@ if (wants("wait")) {
           if (s.tick === diesAt && s.players[0].alive) killPlayer(s, s.players[0], "blast");
           const inputs: Inputs = {};
           for (const id of bots) inputs[id] = think(s, id, level);
+          hurryBotsAlone(s, isBotId); // as the room does
           step(s, inputs);
         }
         waits.push(s.tick - diesAt);

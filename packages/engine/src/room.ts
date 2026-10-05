@@ -1,6 +1,6 @@
 import { DEFAULT_BOT_LEVEL, botId, botInput, botName, isBotLevel, type BotLevel } from "./bot";
 import { START_COUNTDOWN_TICKS, TICK_RATE } from "./constants";
-import { createGame, killPlayer, step } from "./game";
+import { createGame, hurryBotsAlone, killPlayer, step } from "./game";
 import { getMap, isMapId, mapSeats } from "./maps";
 import {
   BEST_OF_OPTIONS,
@@ -396,6 +396,7 @@ export function stepRoom(room: RoomState): boolean {
   if (!game) return changed;
 
   for (const m of room.members) if (m.bot && m.inGame) room.inputs[m.id] = botInput(game, m.id, m.bot);
+  hurryBotsAlone(game, (id) => !!member(room, id)?.bot);
   step(game, room.inputs);
   for (const input of Object.values(room.inputs)) {
     for (const b of BUTTONS) input[b] = false;

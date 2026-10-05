@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   BOMB_FUSE_TICKS,
+  BOTS_ONLY_TICKS,
   BOT_LEVELS,
   CLASSIC,
   GHOST_THROW_COOLDOWN_TICKS,
@@ -16,6 +17,7 @@ import {
   createGame,
   createRoom,
   joinRoom,
+  killPlayer,
   roomView,
   stepRoom,
   dangerMap,
@@ -24,7 +26,7 @@ import {
   type BotLevel,
   type Inputs,
 } from "../src";
-import { corridor, makeGame, play, send, testBomb, testFlame } from "./helpers";
+import { corridor, makeGame, pastCountdown, play, send, testBomb, testFlame } from "./helpers";
 
 /** p1 in the middle of a corridor, standing on a bomb of its own. */
 function onOwnBomb() {
@@ -352,6 +354,23 @@ describe("bots in a room", () => {
     const start = { x: bot.x, y: bot.y };
     for (let i = 0; i < 3 * TICK_RATE; i++) stepRoom(room);
     expect(bot.x !== start.x || bot.y !== start.y || room.game!.bombs.length > 0).toBe(true);
+  });
+
+  test("once the last person is out, the room cuts the clock so the bots don't keep everyone waiting", () => {
+    const room = createRoom("BCDFG", 3);
+    joinRoom(room, "u1", "Ana");
+    send(room, "u1", { t: "addBot" });
+    send(room, "u1", { t: "addBot" });
+    send(room, "u1", { t: "timeLimit", minutes: 0 });
+    send(room, "u1", { t: "start" });
+    pastCountdown(room);
+    const game = room.game!;
+    stepRoom(room);
+    expect(game.timeLeft).toBeNull(); // Ana is still in it
+    killPlayer(game, game.players.find((p) => p.id === "u1")!, "blast");
+    stepRoom(room);
+    expect(game.phase).toBe("playing");
+    expect(game.timeLeft).toBeLessThanOrEqual(BOTS_ONLY_TICKS);
   });
 
   test("a bot is never the host, and bots leave with the last human", () => {

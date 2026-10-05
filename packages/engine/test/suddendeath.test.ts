@@ -1,5 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { CLASSIC, FALL_INTERVAL_TICKS, TILE, createGame, fallOrder, step, type GameState, type MapDef } from "../src";
+import {
+  BOTS_ONLY_TICKS,
+  CLASSIC,
+  FALL_INTERVAL_TICKS,
+  TILE,
+  createGame,
+  fallOrder,
+  hurryBotsAlone,
+  killPlayer,
+  step,
+  type GameState,
+  type MapDef,
+} from "../src";
 import { run, testBomb } from "./helpers";
 
 /** 5x3 inner arena; the spiral fills the outer ring of it first and the centre (3,2) almost last. */
@@ -96,5 +108,53 @@ describe("sudden death", () => {
     const s = createGame({ map: CLASSIC, seed: 3, timeLimitTicks: 0, players: [{ id: "a", color: 0 }, { id: "b", color: 1 }] });
     run(s, fallOrder(s.width, s.height).length * FALL_INTERVAL_TICKS + 10);
     expect(s.phase).toBe("finished");
+  });
+});
+
+describe("only bots left", () => {
+  /** p1 is a person; p2 and p3 are bots. */
+  const isBot = (id: string) => id !== "p1";
+  function threeWay(timeLimitTicks: number | null, revenge = false): GameState {
+    const rows = ["#######", "#1...2#", "#.....#", "#3...4#", "#######"];
+    const map: MapDef = { id: "t", name: "t", rows, softDensity: 0 };
+    return createGame({ map, seed: 1, revenge, timeLimitTicks, players: ["p1", "p2", "p3"].map((id, i) => ({ id, color: i })) });
+  }
+  const personOut = (s: GameState) => killPlayer(s, s.players[0], "blast");
+
+  test("with the people out and the bots still at it, the clock is cut short", () => {
+    const s = threeWay(5000);
+    hurryBotsAlone(s, isBot);
+    expect(s.timeLeft).toBe(5000); // not while a person is alive
+    personOut(s);
+    hurryBotsAlone(s, isBot);
+    expect(s.timeLeft).toBe(BOTS_ONLY_TICKS);
+  });
+
+  test("a match with no time limit gets one, and the blocks then fall", () => {
+    const s = threeWay(null);
+    personOut(s);
+    for (let t = 0; t < BOTS_ONLY_TICKS + 2 * FALL_INTERVAL_TICKS; t++) {
+      hurryBotsAlone(s, isBot);
+      step(s);
+    }
+    expect(s.fallen).toBeGreaterThan(0);
+  });
+
+  test("a clock already shorter is left alone, and so is a match that never had people in it", () => {
+    const short = threeWay(100);
+    personOut(short);
+    hurryBotsAlone(short, isBot);
+    expect(short.timeLeft).toBe(100);
+
+    const allBots = threeWay(null);
+    hurryBotsAlone(allBots, () => true);
+    expect(allBots.timeLeft).toBeNull();
+  });
+
+  test("not in revenge mode: the people who fell are still playing, as ghosts", () => {
+    const s = threeWay(5000, true);
+    personOut(s);
+    hurryBotsAlone(s, isBot);
+    expect(s.timeLeft).toBe(5000);
   });
 });

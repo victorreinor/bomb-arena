@@ -11,6 +11,7 @@ import {
   botInput,
   botName,
   createGame,
+  hurryBotsAlone,
   isBotId,
   mapSeats,
   minutesToTicks,
@@ -128,6 +129,7 @@ export function LocalGame({ bots, onLeave }: { bots: BotLevel | null; onLeave: (
                 combineInputs(keyboard.poll(i), pads.poll(i), i === 0 ? touch.poll() : null, bots ? keyboard.poll(1) : null),
           ]),
         );
+        if (bots) hurryBotsAlone(state, isBotId);
         step(state, inputs);
         previous = current;
         current = structuredClone(state);
