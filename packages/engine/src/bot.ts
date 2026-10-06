@@ -30,8 +30,10 @@ import { BLAST_DIRS, DIR_VEC, FLOOR, TILE, emptyInput, type Bomb, type Dir, type
  * It sees what anyone at the screen sees: every bomb, and everyone's items. What its level changes is how
  * well it uses that, the way people differ: how long it takes to notice someone else's bomb (or whether it
  * misses it until too late), whether it miscounts a long blast or overlooks a chain reaction, how long it
- * hesitates and whether it freezes, how well it picks a refuge, whether it drops a bomb with no way out,
- * and whether it minds what the enemy beside it could do. The easy one also hardly goes after people.
+ * hesitates and whether it freezes, how well it picks a refuge, and whether it drops a bomb with no way out.
+ * No level plays without mistakes: the levels are pitched at people, who can't watch the whole board at once.
+ * The easier ones are also less to keep track of: they take their time between bombs, go for fewer items
+ * and mostly bomb bricks rather than whoever comes near.
  * What it remembers lives with the match (see `brainFor`), and its dice are its own, seeded from the match,
  * so it plays the same online and offline. Blast and movement rules come from the engine, never copied.
  */
@@ -46,7 +48,8 @@ export type BotLevel = (typeof BOT_LEVELS)[number];
 export const DEFAULT_BOT_LEVEL: BotLevel = "normal";
 export const isBotLevel = (v: unknown): v is BotLevel => BOT_LEVELS.includes(v as BotLevel);
 
-interface Profile {
+/** What a level is made of: the ways a bot of that level falls short of playing perfectly. */
+export interface BotProfile {
   /** ticks before someone else's new bomb is noticed (give or take 40%); its own are known at once */
   reaction: number;
   /** chance of never noticing someone else's bomb at all (TUNNEL_VISION times that while running from another) */
@@ -59,37 +62,35 @@ interface Profile {
   rethink: number;
   /** ticks spent making up its mind before dropping a bomb: [min, max] */
   hesitate: readonly [number, number];
+  /** ticks, counted from dropping a bomb, before it thinks of dropping another or of going after anyone: [min, max] */
+  rest: readonly [number, number];
   /** chance of freezing on finding itself in danger, and for how long: [min, max] ticks */
   panic: number;
   freeze: readonly [number, number];
-  /** chance, for each PREY_TICKS with nothing else to do, of going after the nearest enemy rather than strolling about */
+  /** chance, in each mood, of bombing an enemy that comes within its reach; otherwise only bricks are worth a bomb to it */
+  pounces: number;
+  /** chance, in each mood, of going after the nearest enemy when it has nothing else to do, rather than strolling about (one that hunts also pounces) */
   hunts: number;
   /** how many steps out of its way it goes for an item */
   itemReach: number;
-  /** how many of the nearest spots to break bricks from it weighs up, to take the one nearest its prey: 1 just breaks the nearest */
-  pursuit: number;
-  /** spare time, in tiles' worth of walking, it wants when slipping past a cell that will burn */
-  margin: number;
   /** how many of the nearest safe cells it picks its refuge from: 1 always runs for the nearest */
   refuges: number;
   /** chance, on coming to a cell where a bomb would do some good but leave no way out, of dropping it anyway */
   reckless: number;
-  /** chance, every WARY_TICKS, of minding what the enemies near it could do: a bomb of theirs across its way out */
-  wary: number;
 }
 
-const PROFILES: Record<BotLevel, Profile> = {
+const PROFILES: Record<BotLevel, BotProfile> = {
   easy: {
-    reaction: 34, distracted: 0.22, misjudge: 0.25, chainBlind: 0.7, rethink: 15, hesitate: [8, 24], panic: 0.4, freeze: [15, 40],
-    hunts: 0.3, itemReach: 3, pursuit: 1, margin: 0.5, refuges: 3, reckless: 0.09, wary: 0,
+    reaction: 46, distracted: 0.4, misjudge: 0.5, chainBlind: 1, rethink: 25, hesitate: [18, 40], rest: [200, 320], panic: 0.6, freeze: [25, 50],
+    pounces: 0.2, hunts: 0.1, itemReach: 1, refuges: 4, reckless: 0.14,
   },
   normal: {
-    reaction: 12, distracted: 0.1, misjudge: 0.05, chainBlind: 0.25, rethink: 9, hesitate: [3, 10], panic: 0.15, freeze: [8, 20],
-    hunts: 0.8, itemReach: 6, pursuit: 1, margin: 1.5, refuges: 2, reckless: 0.012, wary: 0.35,
+    reaction: 40, distracted: 0.3, misjudge: 0.35, chainBlind: 0.85, rethink: 20, hesitate: [12, 30], rest: [80, 140], panic: 0.5, freeze: [20, 45],
+    pounces: 0.6, hunts: 0.3, itemReach: 2, refuges: 3, reckless: 0.11,
   },
   hard: {
-    reaction: 4, distracted: 0.015, misjudge: 0, chainBlind: 0, rethink: 4, hesitate: [0, 2], panic: 0, freeze: [0, 0],
-    hunts: 1, itemReach: 8, pursuit: 6, margin: 2, refuges: 1, reckless: 0, wary: 1,
+    reaction: 34, distracted: 0.22, misjudge: 0.25, chainBlind: 0.7, rethink: 15, hesitate: [8, 24], rest: [0, 0], panic: 0.4, freeze: [15, 40],
+    pounces: 1, hunts: 0.3, itemReach: 3, refuges: 3, reckless: 0.09,
   },
 };
 
@@ -97,14 +98,8 @@ const PROFILES: Record<BotLevel, Profile> = {
 const TUNNEL_VISION = 2;
 /** a blast this many tiles long, or longer, is hard to count by eye */
 const MISJUDGE_FROM = 4;
-/** the least margin (tiles' worth of walking) that still gets a bot off a cell before it burns */
-const DASH_MARGIN = 0.5;
-/** a bot's wariness is settled anew this often (ticks) */
-const WARY_TICKS = 3 * TICK_RATE;
-/** an enemy this close (tiles, by rows and columns) is one a wary bot allows for */
-const WARY_TILES = 3;
-/** how many steps further than the nearest refuge a wary bot goes for one with more ways out */
-const WARY_DETOUR = 2;
+/** spare time (tiles' worth of walking) a bot allows when slipping past a cell that will burn: the least that still gets it off in time */
+const MARGIN = 0.5;
 /** someone else's remote bombs can go off whenever they like: treat them as about to */
 const REMOTE_DANGER_TICKS = 20;
 /** a lava vent counts as dangerous for this long before it erupts: time enough to get off it */
@@ -113,7 +108,7 @@ const VENT_DANGER_TICKS = 2 * TICK_RATE;
 const MAX_SPOT_CHECKS = 6;
 /** how far (in steps) a bot with nothing to do strolls: far enough to look like it's going somewhere */
 const WANDER_STEPS = [3, 8] as const;
-/** how long a bot sticks to chasing the same enemy before looking around for a nearer one, or to strolling instead */
+/** how long a bot keeps its mood (out to get people or not) and sticks to chasing the same enemy before looking around for a nearer one */
 const PREY_TICKS = 3 * TICK_RATE;
 /** a hunter this close (in tiles, as the crow flies) to its prey stops and waits for a chance to bomb */
 const CLOSE_ENOUGH = 1.5;
@@ -202,7 +197,7 @@ interface Sight {
 
 /** What a bot carries from one tick to the next. */
 interface Brain {
-  profile: Profile;
+  profile: BotProfile;
   /** its own dice (mulberry32 state), so its choices don't disturb the match's */
   rng: { rng: number };
   /** what it makes of each bomb (by id) */
@@ -212,6 +207,8 @@ interface Brain {
   refuge: number | null;
   frozenUntil: number;
   droppedAt: number;
+  /** until when it leaves its bombs alone, having just dropped one */
+  restUntil: number;
   /** when it will have made up its mind to drop the bomb it is thinking about */
   dropAt: number | null;
   /** the cell it is heading for, and when it will next reconsider */
@@ -222,7 +219,8 @@ interface Brain {
   /** the enemy it is going after, and until when */
   prey: string | null;
   preyUntil: number;
-  /** whether, with nothing else to do, it goes after someone or just strolls, and until when */
+  /** its mood, and until when: whether it bombs whoever comes within reach, and whether it goes looking for them */
+  pouncing: boolean;
   hunting: boolean;
   moodUntil: number;
   /** as a ghost: since when an enemy has been in its sights */
@@ -230,14 +228,11 @@ interface Brain {
   /** the cell it last weighed a careless bomb on, and whether it will go through with it */
   rashCell: number | null;
   rash: boolean;
-  /** whether it is minding what the enemies near it could do, and until when */
-  alert: boolean;
-  alertUntil: number;
 }
 
 /** Brains live as long as their match: a new GameState starts every bot afresh. */
 const brains = new WeakMap<GameState, Map<string, Brain>>();
-function brainFor(state: GameState, id: string, level: BotLevel): Brain {
+function brainFor(state: GameState, id: string, profile: BotProfile): Brain {
   let match = brains.get(state);
   if (!match) brains.set(state, (match = new Map()));
   let brain = match.get(id);
@@ -245,30 +240,30 @@ function brainFor(state: GameState, id: string, level: BotLevel): Brain {
     let seed = state.rng ^ 0x811c9dc5;
     for (let i = 0; i < id.length; i++) seed = Math.imul(seed ^ id.charCodeAt(i), 0x01000193);
     brain = {
-      profile: PROFILES[level],
+      profile,
       rng: { rng: seed >>> 0 },
       seen: new Map(),
       fleeing: false,
       refuge: null,
       frozenUntil: -1,
       droppedAt: -1,
+      restUntil: -1,
       dropAt: null,
       goal: null,
       rethinkAt: -1,
       strolling: false,
       prey: null,
       preyUntil: -1,
+      pouncing: false,
       hunting: false,
       moodUntil: -1,
       linedSince: null,
       rashCell: null,
       rash: false,
-      alert: false,
-      alertUntil: -1,
     };
     match.set(id, brain);
   }
-  brain.profile = PROFILES[level];
+  brain.profile = profile;
   return brain;
 }
 
@@ -314,14 +309,13 @@ interface Planned {
   cell: number;
   blast: number[];
 }
-const NO_BOMBS: Planned[] = [];
 const FACINGS = Object.keys(DIR_VEC) as Dir[];
 
 /**
  * Where to run from `cell` (no blast reaches it yet) were `bombs` laid this tick: the nearest cell every
  * blast spares, not walking through any of them but the one on `cell` itself.
  */
-function wayOut(state: GameState, p: Player, danger: number[], cell: number, margin: number, bombs: Planned[]): Visit | undefined {
+function wayOut(state: GameState, p: Player, danger: number[], cell: number, bombs: Planned[]): Visit | undefined {
   // a fresh bomb's fuse is the longest there is, so it can't set any other off sooner: overlaying its cells is exact
   const after = danger.slice();
   const blocked = new Set<number>();
@@ -329,7 +323,7 @@ function wayOut(state: GameState, p: Player, danger: number[], cell: number, mar
     for (const c of b.blast) after[c] = Math.min(after[c], BOMB_FUSE_TICKS);
     if (b.cell !== cell) blocked.add(b.cell);
   }
-  return explore(state, p, after, cell, margin, blocked).find((v) => v.dist > 0 && after[v.cell] === NEVER);
+  return explore(state, p, after, cell, MARGIN, blocked).find((v) => v.dist > 0 && after[v.cell] === NEVER);
 }
 
 /** The way out after a bomb is laid on a cell, and which way to face laying it (null: whichever way it runs). */
@@ -339,97 +333,40 @@ interface Drop {
 }
 
 /**
- * Whether the bot could lay a bomb on `cell` and get away, allowing for `threats` as well. With a line
- * charge the bombs go in a row the way it faces (straight across its way out, if it faces that way), so it
- * looks for a way to face that leaves it one, laying as few as will do.
+ * Whether the bot could lay a bomb on `cell` and get away. With a line charge the bombs go in a row the
+ * way it faces (straight across its way out, if it faces that way), so it looks for a way to face that
+ * leaves it one, laying as few as will do.
  */
-function planDrop(state: GameState, p: Player, danger: number[], cell: number, margin: number, threats: Planned[]): Drop | undefined {
+function planDrop(state: GameState, p: Player, danger: number[], cell: number): Drop | undefined {
   const x = cell % state.width;
   const y = Math.floor(cell / state.width);
   const laid = (facing: Dir): Planned[] =>
     bombsLaid(state, p, facing, x, y).map((b) => ({ cell: b.y * state.width + b.x, blast: blastCells(state, b.x, b.y, b.range, p.pierceBomb) }));
   if (p.lineCharges === 0 || p.bombsMax - p.bombsActive < 2) {
-    const escape = wayOut(state, p, danger, cell, margin, [...laid(p.facing), ...threats]);
+    const escape = wayOut(state, p, danger, cell, laid(p.facing));
     return escape && { escape, facing: null };
   }
   const rows = FACINGS.map((facing) => ({ facing, bombs: laid(facing) })).sort((a, b) => a.bombs.length - b.bombs.length);
   for (const { facing, bombs } of rows) {
-    const escape = wayOut(state, p, danger, cell, margin, [...bombs, ...threats]);
+    const escape = wayOut(state, p, danger, cell, bombs);
     if (escape) return { escape, facing };
   }
   return undefined;
 }
 
 /**
- * The bombs a bot minding its enemies allows for: one from each of them near `cell` that could lay one,
- * where it stands. None for a bot that isn't minding them just now.
- */
-function threatsNear(state: GameState, brain: Brain, cell: number, enemies: Player[]): Planned[] {
-  if (!brain.alert) return NO_BOMBS;
-  const width = state.width;
-  const threats: Planned[] = [];
-  for (const e of enemies) {
-    const ex = Math.floor(e.x);
-    const ey = Math.floor(e.y);
-    if (Math.abs(ex - (cell % width)) + Math.abs(ey - Math.floor(cell / width)) > WARY_TILES) continue;
-    if (!canDropBomb(e) || !canPlaceAt(state, ex, ey)) continue;
-    threats.push({ cell: ey * width + ex, blast: blastCells(state, ex, ey, bombRangeFor(e), e.pierceBomb) });
-  }
-  return threats;
-}
-
-/** Whether one of `threats` has the bot on `here` in its blast with no way out, were it laid now. */
-function cornerable(state: GameState, p: Player, brain: Brain, danger: number[], here: number, threats: Planned[]): boolean {
-  return threats.some((t) => t.blast.includes(here) && !wayOut(state, p, danger, here, brain.profile.margin, [t]));
-}
-
-/**
  * Where to run from the blast the bot stands in: the refuge it is already running for while that holds,
- * otherwise one of the nearest safe cells (the nearest for a bot that picks well, the roomiest for one
- * minding its enemies). Short of time for its usual margin, it cuts it as fine as will still do; with no
- * way out at all it makes for wherever the fire comes last, rather than stand and wait for it.
+ * otherwise one of the nearest safe cells (not always the very nearest: people pick badly in a hurry). With
+ * no way out at all it makes for wherever the fire comes last, rather than stand and wait for it.
  */
-function shelter(state: GameState, p: Player, brain: Brain, danger: number[], here: number, threats: Planned[]): Visit | undefined {
-  const { margin, refuges } = brain.profile;
+function shelter(state: GameState, p: Player, brain: Brain, danger: number[], here: number): Visit | undefined {
   const safe = (v: Visit) => danger[v.cell] === NEVER;
-  const within = [explore(state, p, danger, here, margin)];
-  const kept = (reachable: Visit[]) => reachable.find((v) => v.cell === brain.refuge && safe(v));
-  let refuge = kept(within[0]);
-  if (!refuge && margin > DASH_MARGIN) {
-    within.push(explore(state, p, danger, here, DASH_MARGIN));
-    refuge = kept(within[1]);
-  }
+  const near = explore(state, p, danger, here, MARGIN).filter(safe);
+  const refuge = near.find((v) => v.cell === brain.refuge);
   if (refuge) return refuge;
-  for (const reachable of within) {
-    const near = reachable.filter(safe);
-    if (near.length === 0) continue;
-    if (brain.alert) return roomiest(state, p, danger, near, threats);
-    return refuges > 1 ? pickRandom(brain.rng, near.slice(0, refuges)) : near[0];
-  }
+  if (near.length > 0) return pickRandom(brain.rng, near.slice(0, brain.profile.refuges));
   const anywhere = explore(state, p, new Array<number>(danger.length).fill(NEVER), here, 0);
   return anywhere.reduce((best, v) => (danger[v.cell] > danger[best.cell] ? v : best));
-}
-
-/** Of the safe cells about as near as the nearest, the one hardest to be shut into: most ways out, and out of the enemies' line of fire. */
-function roomiest(state: GameState, p: Player, danger: number[], near: Visit[], threats: Planned[]): Visit {
-  const width = state.width;
-  const room = (v: Visit) => {
-    const open = BLAST_DIRS.filter((d) => {
-      const nx = (v.cell % width) + d.dx;
-      const ny = Math.floor(v.cell / width) + d.dy;
-      return !solidFor(state, p, nx, ny) && danger[ny * width + nx] === NEVER;
-    }).length;
-    return threats.some((t) => t.blast.includes(v.cell)) ? open - BLAST_DIRS.length : open;
-  };
-  let best = near[0];
-  let most = room(best);
-  for (const v of near) {
-    if (v.dist <= near[0].dist + WARY_DETOUR && room(v) > most) {
-      best = v;
-      most = room(v);
-    }
-  }
-  return best;
 }
 
 interface Visit {
@@ -531,11 +468,15 @@ function stay(state: GameState, p: Player, here: number): Input {
   return floorAt(state, Math.floor(p.x), Math.floor(p.y)) === FLOOR.ICE ? emptyInput() : stepTowards(p, here, state.width);
 }
 
-/** What the bot with this id does this tick. */
-export function botInput(state: GameState, id: string, level: BotLevel = DEFAULT_BOT_LEVEL): Input {
+/**
+ * What the bot with this id does this tick. A profile in place of a level is for the tests and the
+ * benchmark: a player that stays the same while the levels are tuned.
+ */
+export function botInput(state: GameState, id: string, level: BotLevel | BotProfile = DEFAULT_BOT_LEVEL): Input {
   const p = state.players.find((o) => o.id === id);
-  if (!p || state.phase !== "playing") return emptyInput();
-  const brain = brainFor(state, id, level);
+  // through "Ready…" nothing it pressed would count, and it would take a bomb it never laid for dropped
+  if (!p || state.phase !== "playing" || state.tick < state.goTick) return emptyInput();
+  const brain = brainFor(state, id, typeof level === "string" ? PROFILES[level] : level);
   if (!p.alive) return p.ghost ? ghostInput(state, p, brain) : emptyInput();
   if (p.jump || p.stunned > 0) return emptyInput();
   const input = decide(state, p, brain);
@@ -547,12 +488,14 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
   const width = state.width;
   const here = Math.floor(p.y) * width + Math.floor(p.x);
   const danger = perceivedDanger(state, p, brain);
-  if (state.tick >= brain.alertUntil) {
-    brain.alert = nextRandom(brain.rng) < brain.profile.wary;
-    brain.alertUntil = state.tick + WARY_TICKS;
+  // one roll for both sides of its mood, so that a bot out hunting also bombs whoever it finds
+  if (state.tick >= brain.moodUntil) {
+    const mood = nextRandom(brain.rng);
+    brain.pouncing = mood < Math.max(brain.profile.pounces, brain.profile.hunts);
+    brain.hunting = mood < brain.profile.hunts;
+    brain.moodUntil = state.tick + PREY_TICKS;
   }
   const enemies = state.players.filter((o) => o.alive && o.id !== p.id);
-  const threats = threatsNear(state, brain, here, enemies);
 
   // 1. in harm's way: run for a safe cell, and keep running for it while it stays safe
   if (danger[here] !== NEVER) {
@@ -567,7 +510,7 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
       }
     }
     if (state.tick < brain.frozenUntil) return emptyInput();
-    const refuge = shelter(state, p, brain, danger, here, threats);
+    const refuge = shelter(state, p, brain, danger, here);
     brain.refuge = refuge?.cell ?? null;
     return refuge ? stepTowards(p, refuge.first, width) : emptyInput();
   }
@@ -577,10 +520,10 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
   if (actionFor(state, p)?.act === "detonate" && danger[carriedTo(state, p, here)] === NEVER) return { ...stay(state, p, here), action: true };
 
   // 2. a good spot to bomb, with an escape route afterwards: make up its mind, settle in the middle, drop
-  const canBomb = canDropBomb(p);
-  const enemyCells = new Set(enemies.map((e) => Math.floor(e.y) * width + Math.floor(e.x)));
+  const canBomb = canDropBomb(p) && state.tick >= brain.restUntil;
+  const enemyCells = brain.pouncing ? new Set(enemies.map((e) => Math.floor(e.y) * width + Math.floor(e.x))) : NOBODY;
   if (canBomb && bombValue(state, p, here, enemyCells) > 0) {
-    const drop = planDrop(state, p, danger, here, brain.profile.margin, threats) ?? rashDrop(state, p, brain, here);
+    const drop = planDrop(state, p, danger, here) ?? rashDrop(state, p, brain, here);
     if (drop) {
       brain.dropAt ??= state.tick + between(brain, brain.profile.hesitate);
       const settled = stay(state, p, here);
@@ -588,6 +531,7 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
       brain.dropAt = null;
       brain.goal = null;
       brain.droppedAt = state.tick;
+      brain.restUntil = state.tick + between(brain, brain.profile.rest);
       const steer = drop.facing ? { ...emptyInput(), ...DIR_VEC[drop.facing] } : stepTowards(p, drop.escape.first, width);
       return { ...steer, bomb: true };
     }
@@ -601,7 +545,7 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
   const keep = brain.strolling || state.tick < brain.rethinkAt;
   let goal = keep ? calm.find((v) => v.cell === brain.goal && v.dist > 0) : undefined;
   if (!goal) {
-    goal = chooseGoal(state, p, brain, danger, calm, canBomb, enemies, threats);
+    goal = chooseGoal(state, p, brain, danger, calm, canBomb, enemies);
     brain.goal = goal?.cell ?? null;
     brain.rethinkAt = state.tick + brain.profile.rethink;
   }
@@ -631,74 +575,25 @@ function carriedTo(state: GameState, p: Player, here: number): number {
   return dir ? here + DIR_VEC[dir].dx + DIR_VEC[dir].dy * state.width : here;
 }
 
-/**
- * Somewhere worth going: an item close by, a brick to break, or else the nearest enemy (or a stroll). One
- * minding its enemies stays out of their line of fire on the way, and first of all gets out of it when a
- * bomb of theirs would shut it in where it stands.
- */
-function chooseGoal(
-  state: GameState,
-  p: Player,
-  brain: Brain,
-  danger: number[],
-  calm: Visit[],
-  canBomb: boolean,
-  enemies: Player[],
-  threats: Planned[],
-): Visit | undefined {
+/** Somewhere worth going: an item close by, a brick to break (once it is ready for another bomb), or else the nearest enemy or a stroll. */
+function chooseGoal(state: GameState, p: Player, brain: Brain, danger: number[], calm: Visit[], canBomb: boolean, enemies: Player[]): Visit | undefined {
   const width = state.width;
-  const exposed = new Set(threats.flatMap((t) => t.blast));
-  if (cornerable(state, p, brain, danger, calm[0].cell, threats)) {
-    const clear = calm.find((v) => v.dist > 0 && !exposed.has(v.cell));
-    if (clear) {
-      brain.strolling = true; // walked to the end: half-way there it would still be cornered
-      return clear;
-    }
-  }
   const wanted = new Set(
     state.powerUps.filter((u) => u.kind !== "skull" && !(u.kind === "egg" && p.pet)).map((u) => u.y * width + u.x),
   );
   const errand =
-    calm.find((v) => v.dist > 0 && v.dist <= brain.profile.itemReach && wanted.has(v.cell) && !exposed.has(v.cell)) ??
-    (canBomb ? bombingSpot(state, p, brain, danger, calm, enemies, threats, exposed) : undefined);
-  if (state.tick >= brain.moodUntil) {
-    brain.hunting = nextRandom(brain.rng) < brain.profile.hunts;
-    brain.moodUntil = state.tick + PREY_TICKS;
-  }
-  brain.strolling = !errand && !brain.hunting;
-  return errand ?? (brain.strolling ? wander(calm, brain) : hunt(state, p, brain, danger, calm, enemies, threats, exposed));
+    calm.find((v) => v.dist > 0 && v.dist <= brain.profile.itemReach && wanted.has(v.cell)) ??
+    (canBomb ? bombingSpot(state, p, danger, calm) : undefined);
+  // taking its time after a bomb it goes after nobody either: with no bomb to lay it would only shadow them
+  brain.strolling = !errand && !(brain.hunting && state.tick >= brain.restUntil);
+  return errand ?? (brain.strolling ? wander(calm, brain) : hunt(state, p, brain, calm, enemies));
 }
 
 /**
- * Where to go to get at its prey (one enemy, kept for a while, so that it isn't torn between two whenever
- * they shuffle about). Minding what the prey could do back, it makes for a cell to bomb it from
- * with a way out whatever the prey does, and failing that waits out of its line of fire, not at its side.
+ * Where to go to get at its prey: the nearest enemy, kept for PREY_TICKS before it looks round for a nearer,
+ * so that it isn't torn between two whenever they shuffle about.
  */
-function hunt(
-  state: GameState,
-  p: Player,
-  brain: Brain,
-  danger: number[],
-  calm: Visit[],
-  enemies: Player[],
-  threats: Planned[],
-  exposed: ReadonlySet<number>,
-): Visit | undefined {
-  const prey = preyOf(state, p, brain, enemies);
-  if (!prey) return undefined;
-  const away = Math.abs(prey.x - p.x) + Math.abs(prey.y - p.y);
-  if (brain.alert) {
-    const spot = canDropBomb(p) ? attackSpot(state, p, brain, danger, calm, prey, enemies) : undefined;
-    if (spot) return spot;
-    if (exposed.size > 0) return nearestTowards(prey, calm.filter((v) => !exposed.has(v.cell)), state.width) ?? calm[0];
-  }
-  // already on top of it: chasing the cell it is in would just be shuffling back and forth with it
-  if (away < CLOSE_ENOUGH) return calm[0];
-  return nearestTowards(prey, calm, state.width);
-}
-
-/** The enemy the bot is after: the nearest one, kept for PREY_TICKS before it looks round for a nearer. */
-function preyOf(state: GameState, p: Player, brain: Brain, enemies: Player[]): Player | undefined {
+function hunt(state: GameState, p: Player, brain: Brain, calm: Visit[], enemies: Player[]): Visit | undefined {
   const away = (e: Player) => Math.abs(e.x - p.x) + Math.abs(e.y - p.y);
   let prey = state.tick < brain.preyUntil ? enemies.find((e) => e.id === brain.prey) : undefined;
   if (!prey) {
@@ -706,50 +601,26 @@ function preyOf(state: GameState, p: Player, brain: Brain, enemies: Player[]): P
     brain.prey = prey?.id ?? null;
     brain.preyUntil = state.tick + PREY_TICKS;
   }
-  return prey;
-}
-
-/** The nearest cell a bomb would reach the prey from and still leave a way out, whatever the enemies near it lay. */
-function attackSpot(state: GameState, p: Player, brain: Brain, danger: number[], calm: Visit[], prey: Player, enemies: Player[]): Visit | undefined {
-  // the same blast reaches from the prey's cell to the bot's as the other way round
-  const inReach = new Set(blastCells(state, Math.floor(prey.x), Math.floor(prey.y), bombRangeFor(p), p.pierceBomb));
-  let checked = 0;
-  for (const v of calm) {
-    if (v.dist === 0 || !inReach.has(v.cell) || !canPlaceAt(state, v.cell % state.width, Math.floor(v.cell / state.width))) continue;
-    if (planDrop(state, p, danger, v.cell, brain.profile.margin, threatsNear(state, brain, v.cell, enemies))) return v;
-    if (++checked === MAX_SPOT_CHECKS) return undefined;
-  }
-  return undefined;
+  if (!prey) return undefined;
+  // already on top of it: chasing the cell it is in would just be shuffling back and forth with it
+  if (away(prey) < CLOSE_ENOUGH) return calm[0];
+  return nearestTowards(prey, calm, state.width);
 }
 
 /**
- * A cell near by where a bomb would break bricks and still leave a way out. Without that check two such
+ * The nearest cell where a bomb would break bricks and still leave a way out. Without that check two such
  * cells side by side, neither with an escape, would have the bot pacing between them. Enemies in reach
  * don't count here: they move, and a goal that moves with them has the bot dithering (step 2 still bombs
- * anyone in range). A bot in pursuit weighs up the nearest few and breaks through towards its prey, sticking
- * to the spot it was already making for while that still serves.
+ * anyone in range, in the mood for it).
  */
-function bombingSpot(
-  state: GameState,
-  p: Player,
-  brain: Brain,
-  danger: number[],
-  calm: Visit[],
-  enemies: Player[],
-  threats: Planned[],
-  exposed: ReadonlySet<number>,
-): Visit | undefined {
-  const spots: Visit[] = [];
+function bombingSpot(state: GameState, p: Player, danger: number[], calm: Visit[]): Visit | undefined {
   let failed = 0;
   for (const v of calm) {
-    if (v.dist === 0 || exposed.has(v.cell) || bombValue(state, p, v.cell, NOBODY) === 0) continue;
-    if (planDrop(state, p, danger, v.cell, brain.profile.margin, threats)) spots.push(v);
-    else failed++;
-    if (spots.length === brain.profile.pursuit || failed === MAX_SPOT_CHECKS) break;
+    if (v.dist === 0 || bombValue(state, p, v.cell, NOBODY) === 0) continue;
+    if (planDrop(state, p, danger, v.cell)) return v;
+    if (++failed === MAX_SPOT_CHECKS) return undefined;
   }
-  const prey = spots.length > 1 ? preyOf(state, p, brain, enemies) : undefined;
-  if (!prey) return spots[0];
-  return spots.find((v) => v.cell === brain.goal) ?? nearestTowards(prey, spots, state.width);
+  return undefined;
 }
 
 /**

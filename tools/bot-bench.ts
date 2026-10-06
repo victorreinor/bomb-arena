@@ -1,8 +1,9 @@
 /**
- * Bot benchmark: how hard each level is to kill, how often it blunders and how hard it presses, set against
- * the targets below. The seeds are fixed, so the same code always prints the same numbers: change a profile
- * in `packages/engine/src/bot.ts`, run it again and compare.
- * Usage: bun run bench:bots [section ...]   (sections: dodge tip solo stalker attack wait duel; all by default)
+ * Bot benchmark: how hard each level is to kill, how often it blunders, how hard it presses and what a
+ * practice match against three of it is like, set against the targets below. The seeds are fixed, so the
+ * same code always prints the same numbers: change a profile in `packages/engine/src/bot.ts`, run it again
+ * and compare.
+ * Usage: bun run bench:bots [section ...]   (sections: dodge tip solo stalker attack practice wait duel; all by default)
  */
 import {
   BLAST_DIRS,
@@ -11,6 +12,7 @@ import {
   CLASSIC,
   FLAME_TICKS,
   KICK_INTERVAL_TICKS,
+  MAPS,
   PLAYER_RADIUS,
   TICK_RATE,
   TILE,
@@ -27,6 +29,7 @@ import {
   isBotId,
   isBuried,
   killPlayer,
+  mapSeats,
   nextRandom,
   playerSpeed,
   solidFor,
@@ -35,6 +38,7 @@ import {
   tileAt,
   type Bomb,
   type BotLevel,
+  type BotProfile,
   type GameState,
   type Input,
   type Inputs,
@@ -44,10 +48,12 @@ import {
 
 /** What each level should score: [lowest, highest] that still counts as on target. */
 const TARGETS = {
-  dodge: { easy: [22, 38], normal: [6, 14], hard: [0.5, 4] },
-  tip: { easy: [18, 32], normal: [4, 12], hard: [0, 2] },
-  solo: { easy: [20, 40], normal: [5, 15], hard: [0, 3] },
-  attack: { easy: [1.5, 3], normal: [4, 6], hard: [7, 10] },
+  dodge: { easy: [45, 65], normal: [30, 45], hard: [20, 32] },
+  tip: { easy: [25, 45], normal: [25, 45], hard: [20, 35] },
+  solo: { easy: [4, 16], normal: [6, 18], hard: [15, 30] },
+  attack: { easy: [0, 0.2], normal: [0.1, 0.6], hard: [1.5, 2.8] },
+  practice: { easy: [15, 30], normal: [30, 43], hard: [43, 58] },
+  pressure: { easy: [0.3, 1.2], normal: [1.8, 3.2], hard: [3.8, 5.6] },
 } as const satisfies Record<string, Record<BotLevel, readonly [number, number]>>;
 
 const MINUTE = 60 * TICK_RATE;
@@ -68,7 +74,7 @@ const whole = (max: number, dice: { rng: number }) => Math.floor(nextRandom(dice
 let decisions = 0;
 let decisionMs = 0;
 /** botInput, timed: the server runs it for every bot 30 times a second. */
-function think(s: GameState, id: string, level: BotLevel): Input {
+function think(s: GameState, id: string, level: BotLevel | BotProfile): Input {
   const before = performance.now();
   const input = botInput(s, id, level);
   decisionMs += performance.now() - before;
@@ -405,6 +411,73 @@ if (wants("attack")) {
   }
 }
 
+// ------------------------------------------------------------------ practice
+
+/**
+ * Someone who plays about as well as the Hard bot did when the levels were set: slow to see a bomb, now and
+ * then missing one altogether, careless with their own. Written out here, so that it stays the same person
+ * while `PROFILES` is tuned. People can't watch the whole board at once, which is why a level is judged by
+ * what it does to someone like this and not to a perfect player: three Hard bots should be a hard match for
+ * them, and each level below a clear step easier. Whether they win says less than it seems to (as often as
+ * not it is their own bomb that gets them, at any level): what tells the levels apart is how often the bots
+ * put them in a blast, and how often that kills them.
+ */
+const SOMEONE: BotProfile = {
+  reaction: 34, distracted: 0.22, misjudge: 0.25, chainBlind: 0.7, rethink: 15, hesitate: [8, 24], rest: [0, 0], panic: 0.4, freeze: [15, 40],
+  pounces: 1, hunts: 0.3, itemReach: 3, refuges: 3, reckless: 0.09,
+};
+
+if (wants("practice")) {
+  const maps = MAPS.filter((m) => mapSeats(m) > 3);
+  const perMap = 20;
+  const bots = [1, 2, 3].map(botId);
+  console.log(`\n== practice: someone who errs as people do against three bots, as in practice mode (${maps.length} maps, 3-minute clock) ==`);
+  row("level", ["they win %", "killed by bot %", "by own bomb %", "caught in blasts", "bombs per bot"]);
+  for (const level of BOT_LEVELS) {
+    let matches = 0;
+    let won = 0;
+    let byBot = 0;
+    let byOwn = 0;
+    let blasts = 0;
+    let personTicks = 0;
+    let bombs = 0;
+    let botTicks = 0;
+    for (const map of maps) {
+      for (let seed = 1; seed <= perMap; seed++) {
+        const s = createGame({
+          map, seed: seed * 4409 + map.rows.join("").length, timeLimitTicks: MATCH_TICKS,
+          players: [{ id: PERSON, color: 0 }, ...bots.map((id, i) => ({ id, color: i + 1 }))],
+        });
+        const person = s.players[0];
+        let seen = s.nextBombId;
+        while (s.phase === "playing" && s.tick < MATCH_TICKS + 2 * MINUTE) {
+          const inputs: Inputs = { [PERSON]: think(s, PERSON, SOMEONE) };
+          for (const id of bots) inputs[id] = think(s, id, level);
+          hurryBotsAlone(s, isBotId); // as practice mode does
+          step(s, inputs);
+          botTicks += s.players.filter((p) => p.alive && isBotId(p.id)).length;
+          if (person.alive) personTicks++;
+          for (const b of s.bombs) {
+            if (b.id < seen || !isBotId(b.owner)) continue;
+            bombs++;
+            // a bomb a bot has just laid with the person inside its blast: one more they have to see and get out of
+            if (person.alive && blastCells(s, b.x, b.y, b.range, b.pierce).includes(cellOf(s, person))) blasts++;
+          }
+          seen = s.nextBombId;
+        }
+        matches++;
+        if (s.winner === PERSON) won++;
+        else if (person.death?.by === PERSON) byOwn++;
+        else if (person.death?.by) byBot++;
+      }
+    }
+    const pressure = (blasts / personTicks) * MINUTE;
+    row(level, [percent(won, matches).toFixed(1), percent(byBot, matches).toFixed(1), percent(byOwn, matches).toFixed(1), `${pressure.toFixed(1)} a minute`, `${((bombs / botTicks) * MINUTE).toFixed(1)} a minute`]);
+    score("practice", level, percent(byBot, matches));
+    score("pressure", level, pressure);
+  }
+}
+
 // ------------------------------------------------------------------ wait
 
 if (wants("wait")) {
@@ -470,6 +543,8 @@ const NAMES: Record<keyof typeof TARGETS, string> = {
   tip: "caught at the tip of a long blast (%)",
   solo: "blew itself up alone in 3 min (%)",
   attack: "hits a minute on a still target",
+  practice: "practice matches in which one of the three bots kills someone who errs as people do (%)",
+  pressure: "times a minute that someone finds themselves in the blast of a bomb one of the three has just laid",
 };
 console.log("\n== against the targets ==");
 for (const metric of Object.keys(TARGETS) as (keyof typeof TARGETS)[]) {

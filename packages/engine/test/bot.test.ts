@@ -24,9 +24,10 @@ import {
   step,
   stepTowards,
   type BotLevel,
+  type BotProfile,
   type Inputs,
 } from "../src";
-import { corridor, makeGame, pastCountdown, play, send, testBomb, testFlame } from "./helpers";
+import { FLAWLESS, corridor, makeGame, pastCountdown, play, send, testBomb, testFlame } from "./helpers";
 
 /** p1 in the middle of a corridor, standing on a bomb of its own. */
 function onOwnBomb() {
@@ -76,7 +77,7 @@ const POCKETS = ["#####################", "#.........2.........#", "############
 describe("bot", () => {
   test("bombs the brick next to it and gets out of the way", () => {
     const s = makeGame(["#######", "#1+...#", "#.#.#.#", "#.....#", "#....2#", "#######"]);
-    play(s, ["p1"], 200);
+    play(s, ["p1"], 200, FLAWLESS);
     expect(s.players[0].alive).toBe(true);
     expect(s.tiles[1 * s.width + 2]).toBe(TILE.EMPTY);
   });
@@ -84,7 +85,7 @@ describe("bot", () => {
   test("with remote bombs it gets clear of its own and sets it off, instead of waiting out the long fuse", () => {
     const s = makeGame(corridor("1.....+....2"));
     s.players[0].remote = true;
-    play(s, ["p1"], 120); // the safety fuse alone takes 300
+    play(s, ["p1"], 120, FLAWLESS); // the safety fuse alone takes 300
     expect(s.players[0].alive).toBe(true);
     expect(s.tiles[1 * s.width + 7]).toBe(TILE.EMPTY);
   });
@@ -92,7 +93,7 @@ describe("bot", () => {
   test("on a real map it clears bricks for a while without blowing itself up", () => {
     const s = createGame({ map: CLASSIC, seed: 11, players: [{ id: "bot", color: 0 }, { id: "idle", color: 1 }] });
     const bricksBefore = s.tiles.filter((t) => t === TILE.SOFT).length;
-    play(s, ["bot"], 30 * TICK_RATE);
+    play(s, ["bot"], 30 * TICK_RATE, FLAWLESS);
     expect(s.players[0].alive).toBe(true);
     expect(s.tiles.filter((t) => t === TILE.SOFT).length).toBeLessThan(bricksBefore - 5);
   });
@@ -186,9 +187,10 @@ describe("bot", () => {
     expect(easy).toBeLessThan(60);
   });
 
-  // what makes a level easy or hard is how often it gets this wrong, not how fast it walks
+  // what makes a level easy or hard is how often it gets this wrong, not how fast it walks; and none gets it
+  // right every time: they are pitched at people, who can't watch the whole board at once
   test("the easier the bot, the oftener a bomb laid at its side catches it, though there's a pocket to duck into", () => {
-    const caught = (level: BotLevel) => {
+    const caught = (level: BotLevel | BotProfile) => {
       let n = 0;
       for (let seed = 1; seed <= 60; seed++) {
         const s = makeGame(POCKETS, 2, seed);
@@ -199,10 +201,53 @@ describe("bot", () => {
       return n;
     };
     const [easy, normal, hard] = BOT_LEVELS.map(caught);
-    expect(hard).toBeLessThanOrEqual(3);
+    expect(caught(FLAWLESS)).toBe(0); // there is time to spare: whoever is caught wasn't looking, or froze
+    expect(hard).toBeGreaterThan(5);
     expect(normal).toBeGreaterThan(hard);
-    expect(easy).toBeGreaterThan(2 * normal);
-    expect(easy).toBeLessThan(30); // and still gets away more often than not
+    expect(easy).toBeGreaterThan(normal);
+    expect(easy).toBeLessThan(40); // of 60: even the easy one gets away as often as not
+  });
+
+  test("the easier the bot, the longer it takes between bombs", () => {
+    const laid = (level: BotLevel) => {
+      let bombs = 0;
+      for (let seed = 1; seed <= 6; seed++) {
+        const s = createGame({ map: CLASSIC, seed, players: [{ id: "bot", color: 0 }, { id: "idle", color: 1 }] });
+        const first = s.nextBombId;
+        play(s, ["bot"], 60 * TICK_RATE, level);
+        bombs += s.nextBombId - first;
+      }
+      return bombs;
+    };
+    const [easy, normal, hard] = BOT_LEVELS.map(laid);
+    expect(easy).toBeGreaterThan(12); // still at it: more than two a minute
+    expect(normal).toBeGreaterThan(1.4 * easy);
+    expect(hard).toBeGreaterThan(1.4 * normal);
+  });
+
+  test("someone within reach is worth a bomb only to a bot in the mood; bricks always are", () => {
+    const minding: BotProfile = { ...FLAWLESS, pounces: 0, hunts: 0 }; // its own business
+    const laid = (rows: string[], profile: BotProfile) => {
+      const s = makeGame(rows);
+      const first = s.nextBombId;
+      play(s, ["p1"], 5 * TICK_RATE, profile);
+      return s.nextBombId - first;
+    };
+    const together = corridor("1..2....");
+    expect(laid(together, FLAWLESS)).toBeGreaterThan(0);
+    expect(laid(together, minding)).toBe(0);
+    expect(laid(["#######", "#1+...#", "#.#.#.#", "#.....#", "#....2#", "#######"], minding)).toBeGreaterThan(0);
+  });
+
+  // it used to press on through "Ready…": nothing came of it, but it took the bomb it never laid for dropped
+  test("during the countdown it waits like everyone else, and is off as soon as it's over", () => {
+    const s = makeGame(["#######", "#1+...#", "#.#.#.#", "#.....#", "#....2#", "#######"], 2, 1, { countdownTicks: 2 * TICK_RATE });
+    for (let t = 0; t < 2 * TICK_RATE; t++) {
+      expect(botInput(s, "p1", FLAWLESS)).toMatchObject({ dx: 0, dy: 0, bomb: false });
+      step(s);
+    }
+    play(s, ["p1"], 5, FLAWLESS);
+    expect(s.bombs).toHaveLength(1);
   });
 
   test("its own bomb it runs from at once", () => {
@@ -213,7 +258,7 @@ describe("bot", () => {
     const run = (cursed: boolean) => {
       const s = onOwnBomb();
       if (cursed) s.players[0].disease = { kind: "reverse", ticksLeft: 999 };
-      play(s, ["p1"], 10, "hard");
+      play(s, ["p1"], 10, FLAWLESS);
       return s.players[0].x;
     };
     expect(run(true)).toBe(run(false));
@@ -224,7 +269,7 @@ describe("bot", () => {
   test("with a line charge it doesn't lay the row across its own way out", () => {
     const s = makeGame(["#######", "#1+...#", "#.#.#.#", "#.....#", "#....2#", "#######"]);
     Object.assign(s.players[0], { bombsMax: 3, lineCharges: 1 });
-    play(s, ["p1"], 200, "hard");
+    play(s, ["p1"], 200, FLAWLESS);
     expect(s.players[0].alive).toBe(true);
     expect(s.tiles[1 * s.width + 2]).toBe(TILE.EMPTY);
   });
@@ -237,30 +282,20 @@ describe("bot", () => {
     expect(stepTowards(p, 1 * s.width + 2, s.width)).toMatchObject({ dx: 1, dy: 0 });
   });
 
-  // the margin it likes to keep used to be all or nothing: with less time than that it stood and waited for the blast
-  test("with no time for its usual margin, it still makes a dash for the pocket", () => {
+  // it used to want more time to spare than this, and stood waiting for the blast when it didn't have it
+  test("with barely time to get off, it still makes a dash for the pocket", () => {
     const s = makeGame(["#############", "#####.1.#####", "#####.#.#####", "#############", "#.....2.....#", "#############"]);
     const bomb = testBomb(s, 6, 1, { ticksLeft: 24, range: 10 });
     s.players[0].passing.push(bomb.id);
-    play(s, ["p1"], 60, "hard");
+    play(s, ["p1"], 60, FLAWLESS);
     expect(s.players[0].alive).toBe(true);
   });
 
-  test("minding the enemy at its side, a hard bot backs out of a dead end and bombs from where it can get away", () => {
-    // p1 between p2 and a brick: a bomb there hits both, but p2 need only lay one too to shut p1 in
-    const firstBomb = (level: BotLevel) => {
-      const s = makeGame(corridor("....21+"));
-      for (let t = 0; t < 6 * TICK_RATE && s.bombs.length === 0; t++) step(s, { p1: botInput(s, "p1", level) });
-      return s.bombs[0]?.x;
-    };
-    expect(firstBomb("easy")).toBe(6);
-    expect(firstBomb("hard")).toBeLessThan(6); // past p2 first, with the open corridor behind it
-  });
-
-  test("alone on a real map, a hard bot doesn't blow itself up", () => {
+  // so that when a level does blow itself up, it is one of the mistakes it was given and not a flaw underneath
+  test("alone on a real map, a bot that makes no mistakes doesn't blow itself up", () => {
     for (let seed = 1; seed <= 8; seed++) {
       const s = createGame({ map: CLASSIC, seed, players: [{ id: "bot", color: 0 }, { id: "idle", color: 1 }] });
-      play(s, ["bot"], 45 * TICK_RATE, "hard");
+      play(s, ["bot"], 45 * TICK_RATE, FLAWLESS);
       expect([seed, s.players[0].alive]).toEqual([seed, true]);
     }
   });
@@ -352,7 +387,7 @@ describe("bots in a room", () => {
     send(room, "u1", { t: "start" });
     const bot = room.game!.players.find((p) => p.id === "bot-1")!;
     const start = { x: bot.x, y: bot.y };
-    for (let i = 0; i < 3 * TICK_RATE; i++) stepRoom(room);
+    for (let i = 0; i < 5 * TICK_RATE; i++) stepRoom(room); // the countdown, then a moment to make up its mind
     expect(bot.x !== start.x || bot.y !== start.y || room.game!.bombs.length > 0).toBe(true);
   });
 

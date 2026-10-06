@@ -11,6 +11,7 @@ import {
   stepRoom,
   type Bomb,
   type BotLevel,
+  type BotProfile,
   type ClientMsg,
   type CreateGameOptions,
   type Flame,
@@ -71,8 +72,17 @@ export function testFlame(s: GameState, x: number, y: number, extra: Partial<Fla
   return flame;
 }
 
+/**
+ * A bot that makes none of the mistakes the levels are made of and wastes no time: for testing what every
+ * level does underneath them, without a level's dice deciding the result.
+ */
+export const FLAWLESS: BotProfile = {
+  reaction: 0, distracted: 0, misjudge: 0, chainBlind: 0, rethink: 4, hesitate: [0, 0], rest: [0, 0], panic: 0, freeze: [0, 0],
+  pounces: 1, hunts: 1, itemReach: 8, refuges: 1, reckless: 0,
+};
+
 /** Runs a game where the listed ids are bots (of `level`) and everyone else stands still, until it ends or `ticks` run out. */
-export function play(s: GameState, bots: string[], ticks: number, level?: BotLevel) {
+export function play(s: GameState, bots: string[], ticks: number, level?: BotLevel | BotProfile) {
   for (let i = 0; i < ticks && s.phase === "playing"; i++) {
     const inputs: Inputs = {};
     for (const id of bots) inputs[id] = botInput(s, id, level);
