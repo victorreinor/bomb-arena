@@ -1,3 +1,4 @@
+import { pickRandom } from "./rng";
 import type { MapDef } from "./types";
 
 export const GRID_W = 15;
@@ -197,4 +198,13 @@ export function getMap(id: string): MapDef {
 
 export function isMapId(id: unknown): id is string {
   return typeof id === "string" && MAPS.some((m) => m.id === id);
+}
+
+/** What the host picks in place of a map to have one drawn at random for every match. */
+export const RANDOM_MAP = "random";
+
+/** One of `maps`, drawn with `dice`: not `last` (the one just played) while there is another to draw. */
+export function drawMap(maps: readonly MapDef[], dice: { rng: number }, last: string | null = null): MapDef {
+  const fresh = maps.filter((m) => m.id !== last);
+  return pickRandom(dice, fresh.length > 0 ? fresh : maps);
 }

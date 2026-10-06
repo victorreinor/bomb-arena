@@ -2,7 +2,7 @@
  * End-to-end smoke test against a running server (`bun run dev:server`).
  * Usage: bun run e2e [ws://localhost:8787]
  */
-import { PROTOCOL_VERSION, fromSnapshot, randomRoomCode, type ClientMsg, type GameState, type RoomView, type ServerMsg } from "../packages/engine/src";
+import { PROTOCOL_VERSION, RANDOM_MAP, fromSnapshot, isMapId, randomRoomCode, type ClientMsg, type GameState, type RoomView, type ServerMsg } from "../packages/engine/src";
 
 const BASE = process.argv[2] ?? "ws://localhost:8787";
 
@@ -25,11 +25,11 @@ class Client {
     public version?: number,
   ) {}
 
-  connect(code: string, create = false, max?: number): Promise<void> {
+  connect(code: string, create = false, max?: number, teams = false): Promise<void> {
     return new Promise((resolve, reject) => {
       this.closed = false;
       const v = this.version ? `&v=${this.version}` : "";
-      this.ws = new WebSocket(`${BASE}/ws/${code}?pid=${this.pid}&name=${this.name}${create ? "&create=1" : ""}${max ? `&max=${max}` : ""}${v}`);
+      this.ws = new WebSocket(`${BASE}/ws/${code}?pid=${this.pid}&name=${this.name}${create ? "&create=1" : ""}${max ? `&max=${max}` : ""}${teams ? "&teams=1" : ""}${v}`);
       this.ws.onmessage = (e) => {
         const msg = JSON.parse(String(e.data)) as ServerMsg;
         if (msg.t === "room") this.room = msg.room;
@@ -226,6 +226,23 @@ for (const g of deltaStates) {
 }
 check("protocol 2: every snapshot rebuilds on the one before", rebuildOk && rebuilt!.players.every((p) => typeof p.x === "number" && p.id !== undefined));
 
+// a room created for teams: newcomers fill the sides evenly, a match is side against side, and with the map
+// left to chance the server draws a real one
+const tHost = new Client("Tina");
+await tHost.connect(randomRoomCode(), true, 4, true);
+await until("team room", () => tHost.room !== null);
+check("room created with teams=1 plays in teams", tHost.room!.teams === true && tHost.room!.members[0].team === 0);
+tHost.send({ t: "addBot" });
+await until("team bot", () => tHost.room!.members.length === 2);
+check("the next one in goes to the other side", tHost.room!.members[1].team === 1);
+tHost.send({ t: "map", mapId: RANDOM_MAP });
+await until("random map", () => tHost.room!.randomMap === true);
+tHost.send({ t: "start" });
+await until("team match", () => tHost.lastState !== null);
+check("the match has each player on their side", tHost.lastState!.game.players.map((p) => p.team).join() === "0,1");
+check(`a map is drawn for the match (${tHost.lastState!.game.mapId})`, isMapId(tHost.lastState!.game.mapId) && tHost.room!.mapId === tHost.lastState!.game.mapId);
+tHost.send({ t: "leave" });
+
 // the host can send someone out: they are told why and hung up on, and the room no longer lists them
 const kHost = new Client("Kai");
 const kGuest = new Client("Kim");
@@ -248,6 +265,6 @@ await watcher.connect(leanRoom);
 await until("room gone or empty", () => watcher.errors.length > 0 || watcher.room !== null);
 check("after the last human leaves, the room (and its bots) is gone", watcher.errors[0] === "not_found");
 
-for (const cl of [a, b, c, d, e1, ghost, dup, h, i2, j, lean, watcher, kHost, kGuest, delta]) cl.ws?.close();
+for (const cl of [a, b, c, d, e1, ghost, dup, h, i2, j, lean, watcher, kHost, kGuest, delta, tHost]) cl.ws?.close();
 console.log(failed === 0 ? "\nAll e2e checks passed" : `\n${failed} check(s) failed`);
 process.exit(failed === 0 ? 0 : 1);

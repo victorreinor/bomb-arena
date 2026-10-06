@@ -3,6 +3,9 @@ import {
   GRID_H,
   GRID_W,
   MAPS,
+  RANDOM_MAP,
+  drawMap,
+  getMap,
   mapSeats,
   RECONNECT_GRACE_TICKS,
   RESULTS_TICKS,
@@ -28,7 +31,7 @@ import {
   START_COUNTDOWN_TICKS,
   type RoomState,
 } from "../src";
-import { pastCountdown, send } from "./helpers";
+import { backToLobby, finishMatch, pastCountdown, send } from "./helpers";
 
 function lobby(names: string[]): RoomState {
   const room = createRoom("BCDFG");
@@ -282,6 +285,76 @@ describe("one-on-one maps", () => {
     send(room, "u3", { t: "leave" });
     expect(startGame(room, "u1", 1)).toBe(true);
     expect([room.game!.width, room.game!.height]).toEqual([11, 9]);
+  });
+});
+
+describe("random map", () => {
+  /** A lobby of `count` with the map left to chance, everyone ready. */
+  const atRandom = (count: number) => {
+    const room = lobby(["A", "B", "C", "D"].slice(0, count));
+    expect(setMap(room, "u2", RANDOM_MAP)).toBe(false); // the host's to pick, like any map
+    expect(setMap(room, "u1", RANDOM_MAP)).toBe(true);
+    for (const m of room.members) setReady(room, m.id, true);
+    return room;
+  };
+  /** Sees the match out (only u1 left standing) and back to the lobby. */
+  const finish = (room: RoomState) => {
+    finishMatch(room, "u1");
+    backToLobby(room);
+    expect(room.phase).toBe("lobby");
+  };
+  /** The next match, everyone ready again: the map it is played on. */
+  const again = (room: RoomState, seed: number) => {
+    finish(room);
+    for (const m of room.members) setReady(room, m.id, true);
+    expect(startGame(room, "u1", seed)).toBe(true);
+    return room.game!.mapId;
+  };
+
+  test("each match is played on a map drawn for it, and the room stays at random until the host picks one", () => {
+    const room = atRandom(2);
+    expect(setMap(room, "u1", RANDOM_MAP)).toBe(false); // no change
+    expect(startGame(room, "u1", 5)).toBe(true);
+    expect(roomView(room)).toMatchObject({ randomMap: true, mapId: room.game!.mapId });
+    const played = new Set([room.game!.mapId]);
+    for (let seed = 6; seed < 40; seed++) played.add(again(room, seed));
+    expect(played.size).toBeGreaterThan(MAPS.length / 2);
+    finish(room);
+    expect(setMap(room, "u1", "maze")).toBe(true);
+    expect(roomView(room)).toMatchObject({ randomMap: false, mapId: "maze" });
+  });
+
+  test("never the map just played, twice running", () => {
+    const room = atRandom(2);
+    startGame(room, "u1", 1);
+    let last = room.game!.mapId;
+    for (let seed = 2; seed < 60; seed++) {
+      const next = again(room, seed);
+      expect([seed, next === last]).toEqual([seed, false]);
+      last = next;
+    }
+  });
+
+  test("only maps with room for everyone are drawn, so a full room is never too many for it", () => {
+    const room = atRandom(4);
+    expect(tooManyForMap(roomView(room))).toBe(false);
+    expect(canStart(roomView(room))).toBe(true);
+    startGame(room, "u1", 1);
+    for (let seed = 2; seed < 40; seed++) expect(mapSeats(getMap(again(room, seed)))).toBe(4);
+  });
+
+  test("the same seed draws the same map", () => {
+    const first = atRandom(3);
+    const second = atRandom(3);
+    startGame(first, "u1", 77);
+    startGame(second, "u1", 77);
+    expect(second.game!.mapId).toBe(first.game!.mapId);
+  });
+
+  test("with one map to draw from, that one is drawn even if it was the last", () => {
+    const dice = { rng: 9 };
+    const only = MAPS.filter((m) => mapSeats(m) >= 4)[0];
+    expect(drawMap([only], dice, only.id)).toBe(only);
   });
 });
 

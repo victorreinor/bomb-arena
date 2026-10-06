@@ -104,7 +104,7 @@ function burnFlames(state: GameState) {
 }
 
 export function createGame(opts: CreateGameOptions): GameState {
-  const { map, players, seed, revenge = false, timeLimitTicks = null, countdownTicks = 0 } = opts;
+  const { map, players, seed, revenge = false, friendlyFire = true, timeLimitTicks = null, countdownTicks = 0 } = opts;
   const height = map.rows.length;
   const width = map.rows[0].length;
   const state: GameState = {
@@ -123,6 +123,7 @@ export function createGame(opts: CreateGameOptions): GameState {
     rng: seed >>> 0,
     mapId: map.id,
     revenge,
+    friendlyFire,
     timeLeft: timeLimitTicks,
     fallen: 0,
     goTick: countdownTicks,
@@ -152,6 +153,7 @@ export function createGame(opts: CreateGameOptions): GameState {
     state.players.push({
       id: p.id,
       color: p.color,
+      team: p.team ?? null,
       x: spawn.x + 0.5,
       y: spawn.y + 0.5,
       alive: true,
@@ -190,14 +192,32 @@ export function createGame(opts: CreateGameOptions): GameState {
   return state;
 }
 
+/** Whether two players are on the same side of a team match (never, when it's everyone for themselves). */
+export const sameTeam = (a: Pick<Player, "team">, b: Pick<Player, "team">) => a.team != null && a.team === b.team;
+
+/** Whether `b` is on `a`'s side: `a` themselves or a team-mate. Everyone else is an opponent. */
+export const onSameSide = (a: Pick<Player, "id" | "team">, b: Pick<Player, "id" | "team">) => a.id === b.id || sameTeam(a, b);
+
+/** Who won a finished match: the winner and, in a team match, the whole team, standing or not. Nobody on a draw. */
+export function winners(state: GameState): Player[] {
+  const first = state.players.find((p) => p.id === state.winner);
+  return first ? state.players.filter((p) => onSameSide(p, first)) : [];
+}
+
 /**
  * Final standings: survivors first, then the rest by who lasted longest.
- * Players who fell on the same tick share a place (1, 2, 2, 4...), so a draw puts them level.
+ * Players who fell on the same tick share a place (1, 2, 2, 4...), so a draw puts them level. A team
+ * stands or falls together: its players share the place of whichever of them lasted longest, and the
+ * places count teams (the two who lost to a pair come second, not third).
  */
 export function computeRanking(state: GameState): { id: string; place: number }[] {
   const lasted = (p: Player) => (p.alive || p.diedAt === null ? Infinity : p.diedAt);
-  const sorted = [...state.players].sort((a, b) => lasted(b) - lasted(a));
-  return sorted.map((p) => ({ id: p.id, place: 1 + sorted.filter((o) => lasted(o) > lasted(p)).length }));
+  const side = (p: Player) => state.players.filter((o) => onSameSide(o, p));
+  const stood = (p: Player) => Math.max(...side(p).map(lasted));
+  const sorted = [...state.players].sort((a, b) => stood(b) - stood(a) || lasted(b) - lasted(a));
+  // one player speaks for each side: the first of it in the list
+  const sides = state.players.filter((p) => side(p)[0] === p);
+  return sorted.map((p) => ({ id: p.id, place: 1 + sides.filter((o) => stood(o) > stood(p)).length }));
 }
 
 export function playerSpeed(p: Player): number {
@@ -329,7 +349,8 @@ export function step(state: GameState, inputs: Inputs = {}): void {
     const tx = Math.floor(p.x);
     const ty = Math.floor(p.y);
     const flame = p.invuln === 0 ? flameAt(state, tx, ty) : undefined;
-    if (flame) {
+    const by = flame && burntBy(state, flame, p);
+    if (by !== undefined) {
       // the mount takes the hit first, then the vest; otherwise it's over
       if (p.pet) {
         p.pet = null;
@@ -339,7 +360,7 @@ export function step(state: GameState, inputs: Inputs = {}): void {
         p.invuln = INVULN_TICKS;
       } else {
         // a flame nobody owns came out of a lava vent
-        if (flame.owner) eliminate(state, p, "blast", flame.owner);
+        if (by) eliminate(state, p, "blast", by);
         else eliminate(state, p, "lava", null);
         continue;
       }
@@ -349,13 +370,25 @@ export function step(state: GameState, inputs: Inputs = {}): void {
 
   spreadDiseases(state);
 
+  // over once nobody is left to fight: nobody at all, one standing, or only team-mates
   if (state.players.length >= 2) {
     const alive = state.players.filter((p) => p.alive);
-    if (alive.length <= 1) {
+    if (alive.every((p) => onSameSide(p, alive[0]))) {
       state.phase = "finished";
       state.winner = alive[0]?.id ?? null;
     }
   }
+}
+
+/**
+ * Whose fire this is, as far as `p` standing in it is concerned: the latest bomb to feed it ("" for lava)
+ * or, with friendly fire off, the last to have joined in feeding it that wasn't a team-mate's. Undefined
+ * when it is all team-mates' and so spares them; their own bomb never does.
+ */
+function burntBy(state: GameState, flame: Flame, p: Player): string | undefined {
+  if (state.friendlyFire || p.team === null || flame.owners.length === 0) return flame.owner;
+  const mate = (id: string) => id !== p.id && state.players.some((o) => o.id === id && sameTeam(o, p));
+  return [...flame.owners].reverse().find((id) => !mate(id));
 }
 
 /** Killed in play (blast or falling block): in revenge mode they come back as a ghost on the wall. */
@@ -384,7 +417,6 @@ export function fallOrder(width: number, height: number): number[] {
   });
 }
 
-/** Counts the match clock down; once it hits zero, blocks drop one by one and crush what is underneath. */
 /**
  * With the people out and only bots left alive, nobody is left to wait for them to settle it: the clock is
  * cut to BOTS_ONLY_TICKS (in a match with no time limit too) and sudden death does the rest. Not in revenge
@@ -398,6 +430,7 @@ export function hurryBotsAlone(state: GameState, isBot: (id: string) => boolean)
   if (people.length > 0 && !people.some((p) => p.alive)) state.timeLeft = BOTS_ONLY_TICKS;
 }
 
+/** Counts the match clock down; once it hits zero, blocks drop one by one and crush what is underneath. */
 function suddenDeath(state: GameState) {
   if (state.timeLeft === null) return;
   if (state.timeLeft > 0) {
@@ -580,10 +613,13 @@ export function blastCells(state: GameState, x: number, y: number, range: number
   return cells;
 }
 
-/** Line bomb: the tiles every spare bomb goes on, one apart, from (x, y) the way `facing` points; none without a charge and two bombs to spare. */
+/** Whether a press of the bomb key lays a row rather than one bomb: with a line charge and two bombs to spare. */
+export const laysLine = (p: Player) => p.lineCharges > 0 && p.bombsMax - p.bombsActive >= 2;
+
+/** Line bomb: the tiles every spare bomb goes on, one apart, from (x, y) the way `facing` points; none unless a row is what would be laid. */
 function lineTiles(state: GameState, p: Player, facing: Dir, x: number, y: number): { x: number; y: number }[] {
+  if (!laysLine(p)) return [];
   const available = p.bombsMax - p.bombsActive;
-  if (p.lineCharges <= 0 || available < 2) return [];
   const d = DIR_VEC[facing];
   const tiles: { x: number; y: number }[] = [];
   for (let i = 0; i < available && canPlaceAt(state, x + d.dx * i, y + d.dy * i); i++) tiles.push({ x: x + d.dx * i, y: y + d.dy * i });
@@ -872,11 +908,13 @@ function moveBomb(state: GameState, b: Bomb, dir: Dir): boolean {
 
 const reverse = (d: Dir): Dir => dirFrom(-DIR_VEC[d].dx, -DIR_VEC[d].dy)!;
 
-/** An opponent stepping on a buried mine sets it off; its owner walks over it safely. */
+/** An opponent stepping on a buried mine sets it off; its owner and, in a team match, their team-mates walk over it safely. */
 function triggerMines(state: GameState) {
   for (const b of state.bombs) {
     if (!isBuried(b)) continue;
-    const stepped = state.players.some((p) => p.alive && !p.jump && p.id !== b.owner && Math.floor(p.x) === b.x && Math.floor(p.y) === b.y);
+    const owner = state.players.find((p) => p.id === b.owner);
+    const friend = (p: Player) => owner !== undefined && onSameSide(p, owner);
+    const stepped = state.players.some((p) => p.alive && !p.jump && !friend(p) && Math.floor(p.x) === b.x && Math.floor(p.y) === b.y);
     if (stepped) b.ticksLeft = 0;
   }
 }
@@ -895,8 +933,9 @@ function addFlame(state: GameState, x: number, y: number, arms: number, owner: s
     existing.arms |= arms;
     existing.ticksLeft = FLAME_TICKS;
     existing.owner = owner;
+    if (owner && !existing.owners.includes(owner)) existing.owners.push(owner);
   } else {
-    state.flames.push({ x, y, arms, ticksLeft: FLAME_TICKS, owner });
+    state.flames.push({ x, y, arms, ticksLeft: FLAME_TICKS, owner, owners: owner ? [owner] : [] });
   }
   const pu = state.powerUps.findIndex((u) => u.x === x && u.y === y);
   if (pu >= 0) state.powerUps.splice(pu, 1);

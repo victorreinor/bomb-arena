@@ -83,6 +83,8 @@ export interface Player {
   id: string;
   /** index into the player colour palette (0-3) */
   color: number;
+  /** the side they are on in a team match (0 or 1); null when it's everyone for themselves */
+  team: number | null;
   /** centre position in tile units; tile (tx, ty) covers [tx, tx+1) x [ty, ty+1) */
   x: number;
   y: number;
@@ -198,6 +200,8 @@ export interface Flame {
   arms: number;
   /** whose bomb's blast this is (the latest to reach the tile): who gets the credit if it catches someone */
   owner: string;
+  /** everyone whose bombs fed this fire, in the order they first did (none for lava): with friendly fire off, what tells a team-mate's fire from one that burns */
+  owners: string[];
 }
 
 export interface PowerUp {
@@ -223,7 +227,7 @@ export type Phase = "playing" | "finished";
 export interface GameState {
   tick: number;
   phase: Phase;
-  /** winner player id once finished; null on a draw */
+  /** winner player id once finished (in a team match, the first of the winning team still standing: see `winners`); null on a draw */
   winner: string | null;
   width: number;
   height: number;
@@ -239,6 +243,8 @@ export interface GameState {
   mapId: string;
   /** dead players become ghosts on the outer wall and keep throwing bombs */
   revenge: boolean;
+  /** in a team match, whether a team-mate's blast kills (one's own bomb always does) */
+  friendlyFire: boolean;
   /** ticks until sudden death (null: no time limit); at 0 the blocks start falling */
   timeLeft: number | null;
   /** how many cells of the sudden-death spiral have been filled */
@@ -249,10 +255,15 @@ export interface GameState {
 
 export interface CreateGameOptions {
   map: MapDef;
-  /** `spawn` picks the map spawn point (0-3); defaults to SPAWN_ORDER so two players start in opposite corners */
-  players: { id: string; color: number; spawn?: number }[];
+  /**
+   * `spawn` picks the map spawn point (0-3); defaults to SPAWN_ORDER so two players start in opposite corners.
+   * `team` (0 or 1) puts them on a side: the match is then between teams.
+   */
+  players: { id: string; color: number; spawn?: number; team?: number }[];
   seed: number;
   revenge?: boolean;
+  /** in a team match, whether a team-mate's blast kills; on unless said otherwise */
+  friendlyFire?: boolean;
   /** match length before sudden death, in ticks; omit or null for no limit */
   timeLimitTicks?: number | null;
   /** ticks of "Ready… Go!" before anyone can move (0, the default, starts at once) */

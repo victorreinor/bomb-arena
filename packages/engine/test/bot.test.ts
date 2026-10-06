@@ -27,7 +27,7 @@ import {
   type BotProfile,
   type Inputs,
 } from "../src";
-import { FLAWLESS, corridor, makeGame, pastCountdown, play, send, testBomb, testFlame } from "./helpers";
+import { FLAWLESS, POCKETS, corridor, makeGame, pastCountdown, play, send, testBomb, testFlame } from "./helpers";
 
 /** p1 in the middle of a corridor, standing on a bomb of its own. */
 function onOwnBomb() {
@@ -71,12 +71,19 @@ describe("danger map", () => {
   });
 });
 
-/** A corridor that one bomb sets all alight, with pockets to duck into; p2 out of reach in a corridor of its own. */
-const POCKETS = ["#####################", "#.........2.........#", "#####################", "#.........1.........#", "####.###.###.###.####", "#####################"];
+/** Three on a board, p1 and p2 against p3, each stood on the tile given (the test maps' own spawns only place two apart). */
+function twoOnOne(rows: string[], tiles: [number, number][], friendlyFire = true) {
+  const s = makeGame(rows, 3, 1, { friendlyFire, teams: [0, 0, 1] });
+  s.players.forEach((p, i) => Object.assign(p, { x: tiles[i][0] + 0.5, y: tiles[i][1] + 0.5 }));
+  return s;
+}
+
+/** p1 beside a brick worth a bomb, with a way out round the corner; p2 far off. */
+const BRICK_BESIDE = ["#######", "#1+...#", "#.#.#.#", "#.....#", "#....2#", "#######"];
 
 describe("bot", () => {
   test("bombs the brick next to it and gets out of the way", () => {
-    const s = makeGame(["#######", "#1+...#", "#.#.#.#", "#.....#", "#....2#", "#######"]);
+    const s = makeGame(BRICK_BESIDE);
     play(s, ["p1"], 200, FLAWLESS);
     expect(s.players[0].alive).toBe(true);
     expect(s.tiles[1 * s.width + 2]).toBe(TILE.EMPTY);
@@ -236,12 +243,12 @@ describe("bot", () => {
     const together = corridor("1..2....");
     expect(laid(together, FLAWLESS)).toBeGreaterThan(0);
     expect(laid(together, minding)).toBe(0);
-    expect(laid(["#######", "#1+...#", "#.#.#.#", "#.....#", "#....2#", "#######"], minding)).toBeGreaterThan(0);
+    expect(laid(BRICK_BESIDE, minding)).toBeGreaterThan(0);
   });
 
   // it used to press on through "Ready…": nothing came of it, but it took the bomb it never laid for dropped
   test("during the countdown it waits like everyone else, and is off as soon as it's over", () => {
-    const s = makeGame(["#######", "#1+...#", "#.#.#.#", "#.....#", "#....2#", "#######"], 2, 1, { countdownTicks: 2 * TICK_RATE });
+    const s = makeGame(BRICK_BESIDE, 2, 1, { countdownTicks: 2 * TICK_RATE });
     for (let t = 0; t < 2 * TICK_RATE; t++) {
       expect(botInput(s, "p1", FLAWLESS)).toMatchObject({ dx: 0, dy: 0, bomb: false });
       step(s);
@@ -267,7 +274,7 @@ describe("bot", () => {
 
   // it faces its way out as it lays a bomb, and a line charge used to lay the row straight across it
   test("with a line charge it doesn't lay the row across its own way out", () => {
-    const s = makeGame(["#######", "#1+...#", "#.#.#.#", "#.....#", "#....2#", "#######"]);
+    const s = makeGame(BRICK_BESIDE);
     Object.assign(s.players[0], { bombsMax: 3, lineCharges: 1 });
     play(s, ["p1"], 200, FLAWLESS);
     expect(s.players[0].alive).toBe(true);
@@ -322,6 +329,27 @@ describe("bot", () => {
     expect([...cells]).toEqual([3]);
   });
 
+  test("in a team match it goes after the other team and leaves its own alone", () => {
+    // p2, at its side, is a team-mate; p3, across the corridor, is not
+    const s = twoOnOne(corridor("12........3"), [[1, 1], [2, 1], [11, 1]]);
+    const first = s.nextBombId;
+    play(s, ["p1"], 2 * TICK_RATE, FLAWLESS);
+    expect(s.nextBombId).toBe(first); // nothing laid on its team-mate
+    expect(s.players[0].x).toBeGreaterThan(5); // and well on its way to p3
+  });
+
+  test("it doesn't lay a bomb that would catch a team-mate, unless friendly fire is off", () => {
+    // a brick worth a bomb at p1's side and a way out below, with team-mate p2 standing in what would burn
+    const laid = (friendlyFire: boolean) => {
+      const s = twoOnOne(["#######", "#1+..3#", "#2#.#.#", "#.....#", "#######"], [[1, 1], [1, 2], [5, 1]], friendlyFire);
+      const first = s.nextBombId;
+      play(s, ["p1"], TICK_RATE, FLAWLESS);
+      return s.nextBombId - first;
+    };
+    expect(laid(true)).toBe(0);
+    expect(laid(false)).toBe(1);
+  });
+
   test("a ghost bot takes aim at an enemy lined up below it, then lobs a bomb", () => {
     // a third player keeps the match going while p1 haunts it
     const s = makeGame(["#######", "#1....#", "#3....#", "#....2#", "#######"], 3);
@@ -340,6 +368,23 @@ describe("bot", () => {
     expect(threwAt).toBeGreaterThan(0);
     p1.ghost.cooldown = GHOST_THROW_COOLDOWN_TICKS;
     expect(botInput(s, "p1").bomb).toBe(false);
+  });
+
+  test("as a ghost it takes no aim at a team-mate", () => {
+    // p2, lined up below, is on p1's side; p3 is over on the left
+    const s = twoOnOne(["#######", "#1....#", "#3....#", "#....2#", "#######"], [[1, 1], [5, 3], [1, 2]]);
+    s.revenge = true;
+    const ring = borderRing(s.width, s.height);
+    const p1 = s.players[0];
+    p1.alive = false;
+    p1.ghost = { pos: ring.findIndex((t) => t.x === 5 && t.y === 0), moveTimer: 0, cooldown: 0 };
+    let threwFrom = -1;
+    for (let t = 0; t < 2 * TICK_RATE && threwFrom < 0; t++) {
+      const input = botInput(s, "p1", FLAWLESS);
+      if (input.bomb) threwFrom = ring[p1.ghost.pos].x;
+      step(s, { p1: input });
+    }
+    expect(threwFrom).toBe(1); // not from over p2: it went round to where p3 is lined up
   });
 });
 

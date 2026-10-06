@@ -10,10 +10,13 @@ import {
   canPlaceAt,
   floorAt,
   isBuried,
+  laysLine,
   liveVents,
   nearestBorderIndex,
+  onSameSide,
   playerSpeed,
   portalExit,
+  sameTeam,
   solidFor,
   ventCycle,
   wrap,
@@ -27,7 +30,7 @@ import { BLAST_DIRS, DIR_VEC, FLOOR, TILE, emptyInput, type Bomb, type Dir, type
  *   2. a bomb here would hit bricks or an enemy, and there is a way out -> drop it, after a moment's thought;
  *   3. otherwise keep heading for its current goal (an item, a brick to break, an enemy), picking a new
  *      one now and then; never through a cell a blast is due on.
- * It sees what anyone at the screen sees: every bomb, and everyone's items. What its level changes is how
+ * It sees what anyone at the screen sees: every bomb on the board. What its level changes is how
  * well it uses that, the way people differ: how long it takes to notice someone else's bomb (or whether it
  * misses it until too late), whether it miscounts a long blast or overlooks a chain reaction, how long it
  * hesitates and whether it freezes, how well it picks a refuge, and whether it drops a bomb with no way out.
@@ -284,10 +287,10 @@ function glance(state: GameState, p: Player, brain: Brain, b: Bomb): Sight {
 /**
  * The danger map as this bot sees it: its own bombs at once and as they are (its remote ones on their real
  * fuse: it sets them off itself), anyone else's once it has noticed them and as it takes them to be, and
- * nobody else's buried mines (no one sees those).
+ * no buried mines but its own and its team-mates' (no one sees the others').
  */
 function perceivedDanger(state: GameState, p: Player, brain: Brain): number[] {
-  const hidden = (b: Bomb) => isBuried(b) && b.owner !== p.id;
+  const hidden = (b: Bomb) => isBuried(b) && !state.players.some((o) => o.id === b.owner && onSameSide(o, p));
   let exact = true;
   for (const b of state.bombs) {
     let sight = brain.seen.get(b.id);
@@ -323,12 +326,16 @@ function wayOut(state: GameState, p: Player, danger: number[], cell: number, bom
     for (const c of b.blast) after[c] = Math.min(after[c], BOMB_FUSE_TICKS);
     if (b.cell !== cell) blocked.add(b.cell);
   }
-  return explore(state, p, after, cell, MARGIN, blocked).find((v) => v.dist > 0 && after[v.cell] === NEVER);
+  // the walk stops at the first safe cell: the nearest, and there is no need to see the rest of the board
+  const safe = (v: Visit) => after[v.cell] === NEVER;
+  const reached = explore(state, p, after, cell, MARGIN, blocked, safe);
+  const last = reached[reached.length - 1];
+  return last.dist > 0 && safe(last) ? last : undefined;
 }
 
-/** The way out after a bomb is laid on a cell, and which way to face laying it (null: whichever way it runs). */
+/** A bomb the bot may lay: its first step away from it, and which way to face laying it (null: whichever way it runs). */
 interface Drop {
-  escape: Visit;
+  first: number;
   facing: Dir | null;
 }
 
@@ -342,14 +349,14 @@ function planDrop(state: GameState, p: Player, danger: number[], cell: number): 
   const y = Math.floor(cell / state.width);
   const laid = (facing: Dir): Planned[] =>
     bombsLaid(state, p, facing, x, y).map((b) => ({ cell: b.y * state.width + b.x, blast: blastCells(state, b.x, b.y, b.range, p.pierceBomb) }));
-  if (p.lineCharges === 0 || p.bombsMax - p.bombsActive < 2) {
+  if (!laysLine(p)) {
     const escape = wayOut(state, p, danger, cell, laid(p.facing));
-    return escape && { escape, facing: null };
+    return escape && { first: escape.first, facing: null };
   }
   const rows = FACINGS.map((facing) => ({ facing, bombs: laid(facing) })).sort((a, b) => a.bombs.length - b.bombs.length);
   for (const { facing, bombs } of rows) {
     const escape = wayOut(state, p, danger, cell, bombs);
-    if (escape) return { escape, facing };
+    if (escape) return { first: escape.first, facing };
   }
   return undefined;
 }
@@ -380,9 +387,18 @@ interface Visit {
  * Breadth-first walk from the bot's tile. Cells the fire will reach before the bot is `margin` tiles'
  * worth of walking past them are skipped, so (with margin to spare) every route it returns is one it can
  * survive. A margin of NEVER keeps out of every cell a blast is due on, however late. `blocked` cells are
- * walked round like walls: the bombs that would be lying there.
+ * walked round like walls: the bombs that would be lying there. With `until`, the walk ends at the first
+ * cell (past the start) that it holds for, which is then the last one returned.
  */
-function explore(state: GameState, p: Player, danger: number[], start: number, margin: number, blocked: ReadonlySet<number> = NOBODY): Visit[] {
+function explore(
+  state: GameState,
+  p: Player,
+  danger: number[],
+  start: number,
+  margin: number,
+  blocked: ReadonlySet<number> = NOBODY,
+  until?: (v: Visit) => boolean,
+): Visit[] {
   const ticksPerTile = TICK_RATE / playerSpeed(p);
   const seen = new Uint8Array(state.width * state.height);
   seen[start] = 1;
@@ -405,7 +421,9 @@ function explore(state: GameState, p: Player, danger: number[], start: number, m
       const end = path ? path[path.length - 1] : next;
       if (seen[end] || (path ? path.some((c, i) => burns(c, i + 1)) : burns(next, 1))) continue;
       seen[end] = 1;
-      out.push({ cell: end, dist: dist + (path?.length ?? 1), first: dist === 0 ? next : first });
+      const visit = { cell: end, dist: dist + (path?.length ?? 1), first: dist === 0 ? next : first };
+      out.push(visit);
+      if (until?.(visit)) return out;
     }
   }
   return out;
@@ -430,14 +448,17 @@ function stepPath(state: GameState, p: Player, x: number, y: number, d: { dx: nu
 
 /**
  * How worthwhile a bomb dropped on `cell` would be: bricks it breaks, enemies it reaches. Nothing where the
- * rules won't let a bomb be laid (inside a brick, for one with wall-pass).
+ * rules won't let a bomb be laid (inside a brick, for one with wall-pass), nor where it would reach one of
+ * `mateCells`: the team-mates its fire would burn.
  */
-function bombValue(state: GameState, p: Player, cell: number, enemyCells: ReadonlySet<number>): number {
+function bombValue(state: GameState, p: Player, cell: number, enemyCells: ReadonlySet<number>, mateCells: ReadonlySet<number>): number {
   const x = cell % state.width;
   const y = Math.floor(cell / state.width);
   if (!canPlaceAt(state, x, y)) return 0;
+  const blast = blastCells(state, x, y, bombRangeFor(p), p.pierceBomb);
+  if (mateCells.size > 0 && blast.some((c) => mateCells.has(c))) return 0;
   let value = 0;
-  for (const c of blastCells(state, x, y, bombRangeFor(p), p.pierceBomb)) {
+  for (const c of blast) {
     if (enemyCells.has(c)) value += 4;
     else if (state.tiles[c] === TILE.SOFT) value += 1;
   }
@@ -495,7 +516,6 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
     brain.hunting = mood < brain.profile.hunts;
     brain.moodUntil = state.tick + PREY_TICKS;
   }
-  const enemies = state.players.filter((o) => o.alive && o.id !== p.id);
 
   // 1. in harm's way: run for a safe cell, and keep running for it while it stays safe
   if (danger[here] !== NEVER) {
@@ -521,8 +541,13 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
 
   // 2. a good spot to bomb, with an escape route afterwards: make up its mind, settle in the middle, drop
   const canBomb = canDropBomb(p) && state.tick >= brain.restUntil;
-  const enemyCells = brain.pouncing ? new Set(enemies.map((e) => Math.floor(e.y) * width + Math.floor(e.x))) : NOBODY;
-  if (canBomb && bombValue(state, p, here, enemyCells) > 0) {
+  const cellOf = (o: Player) => Math.floor(o.y) * width + Math.floor(o.x);
+  const enemies = state.players.filter((o) => o.alive && !onSameSide(o, p));
+  const enemyCells = brain.pouncing ? new Set(enemies.map(cellOf)) : NOBODY;
+  // where friendly fire burns, the team-mates a bomb mustn't reach
+  const mates = state.friendlyFire ? state.players.filter((o) => o.alive && o !== p && sameTeam(o, p)) : [];
+  const mateCells = mates.length > 0 ? new Set(mates.map(cellOf)) : NOBODY;
+  if (canBomb && bombValue(state, p, here, enemyCells, mateCells) > 0) {
     const drop = planDrop(state, p, danger, here) ?? rashDrop(state, p, brain, here);
     if (drop) {
       brain.dropAt ??= state.tick + between(brain, brain.profile.hesitate);
@@ -532,7 +557,7 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
       brain.goal = null;
       brain.droppedAt = state.tick;
       brain.restUntil = state.tick + between(brain, brain.profile.rest);
-      const steer = drop.facing ? { ...emptyInput(), ...DIR_VEC[drop.facing] } : stepTowards(p, drop.escape.first, width);
+      const steer = drop.facing ? { ...emptyInput(), ...DIR_VEC[drop.facing] } : stepTowards(p, drop.first, width);
       return { ...steer, bomb: true };
     }
   }
@@ -545,7 +570,7 @@ function decide(state: GameState, p: Player, brain: Brain): Input {
   const keep = brain.strolling || state.tick < brain.rethinkAt;
   let goal = keep ? calm.find((v) => v.cell === brain.goal && v.dist > 0) : undefined;
   if (!goal) {
-    goal = chooseGoal(state, p, brain, danger, calm, canBomb, enemies);
+    goal = chooseGoal(state, p, brain, danger, calm, canBomb, enemies, mateCells);
     brain.goal = goal?.cell ?? null;
     brain.rethinkAt = state.tick + brain.profile.rethink;
   }
@@ -565,8 +590,7 @@ function rashDrop(state: GameState, p: Player, brain: Brain, here: number): Drop
   const x = here % state.width;
   const y = Math.floor(here / state.width);
   const d = BLAST_DIRS.find((o) => !solidFor(state, p, x + o.dx, y + o.dy));
-  const next = d ? here + d.dx + d.dy * state.width : here;
-  return { escape: { cell: next, dist: 1, first: next }, facing: null };
+  return { first: d ? here + d.dx + d.dy * state.width : here, facing: null };
 }
 
 /** The cell a belt is carrying the bot towards, or the one it stands on. */
@@ -576,14 +600,23 @@ function carriedTo(state: GameState, p: Player, here: number): number {
 }
 
 /** Somewhere worth going: an item close by, a brick to break (once it is ready for another bomb), or else the nearest enemy or a stroll. */
-function chooseGoal(state: GameState, p: Player, brain: Brain, danger: number[], calm: Visit[], canBomb: boolean, enemies: Player[]): Visit | undefined {
+function chooseGoal(
+  state: GameState,
+  p: Player,
+  brain: Brain,
+  danger: number[],
+  calm: Visit[],
+  canBomb: boolean,
+  enemies: Player[],
+  mateCells: ReadonlySet<number>,
+): Visit | undefined {
   const width = state.width;
   const wanted = new Set(
     state.powerUps.filter((u) => u.kind !== "skull" && !(u.kind === "egg" && p.pet)).map((u) => u.y * width + u.x),
   );
   const errand =
     calm.find((v) => v.dist > 0 && v.dist <= brain.profile.itemReach && wanted.has(v.cell)) ??
-    (canBomb ? bombingSpot(state, p, danger, calm) : undefined);
+    (canBomb ? bombingSpot(state, p, danger, calm, mateCells) : undefined);
   // taking its time after a bomb it goes after nobody either: with no bomb to lay it would only shadow them
   brain.strolling = !errand && !(brain.hunting && state.tick >= brain.restUntil);
   return errand ?? (brain.strolling ? wander(calm, brain) : hunt(state, p, brain, calm, enemies));
@@ -613,10 +646,10 @@ function hunt(state: GameState, p: Player, brain: Brain, calm: Visit[], enemies:
  * don't count here: they move, and a goal that moves with them has the bot dithering (step 2 still bombs
  * anyone in range, in the mood for it).
  */
-function bombingSpot(state: GameState, p: Player, danger: number[], calm: Visit[]): Visit | undefined {
+function bombingSpot(state: GameState, p: Player, danger: number[], calm: Visit[], mateCells: ReadonlySet<number>): Visit | undefined {
   let failed = 0;
   for (const v of calm) {
-    if (v.dist === 0 || bombValue(state, p, v.cell, NOBODY) === 0) continue;
+    if (v.dist === 0 || bombValue(state, p, v.cell, NOBODY, mateCells) === 0) continue;
     if (planDrop(state, p, danger, v.cell)) return v;
     if (++failed === MAX_SPOT_CHECKS) return undefined;
   }
@@ -652,7 +685,7 @@ function ghostInput(state: GameState, p: Player, brain: Brain): Input {
   const ghost = p.ghost!;
   const ring = borderRing(state.width, state.height);
   const tile = ring[ghost.pos];
-  const enemies = state.players.filter((o) => o.alive);
+  const enemies = state.players.filter((o) => o.alive && !onSameSide(o, p));
   if (enemies.length === 0) return emptyInput();
   const vertical = tile.inward === "down" || tile.inward === "up";
   const lined = enemies.some((e) => (vertical ? Math.floor(e.x) === tile.x : Math.floor(e.y) === tile.y));

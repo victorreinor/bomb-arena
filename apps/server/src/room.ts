@@ -73,6 +73,7 @@ export class Room {
     const name = url.searchParams.get("name") ?? "";
     const create = url.searchParams.get("create") === "1";
     const max = url.searchParams.get("max");
+    const teams = url.searchParams.get("teams") === "1";
     const version = Number(url.searchParams.get("v")) || 1;
     const capacity = clampCapacity(max === null ? undefined : Number(max));
 
@@ -87,7 +88,7 @@ export class Room {
     } else if (!create && !this.room) {
       this.reject(server, "not_found", "Sala não encontrada.");
     } else {
-      this.room ??= createRoom(code, capacity);
+      this.room ??= createRoom(code, capacity, teams);
       const result = joinRoom(this.room, pid, name);
       if (!result.ok) {
         this.reject(server, "full", "A sala está cheia.");

@@ -11,7 +11,6 @@ import {
   BOT_LEVELS,
   CLASSIC,
   FLAME_TICKS,
-  KICK_INTERVAL_TICKS,
   MAPS,
   PLAYER_RADIUS,
   TICK_RATE,
@@ -31,6 +30,7 @@ import {
   killPlayer,
   mapSeats,
   nextRandom,
+  pickRandom,
   playerSpeed,
   solidFor,
   step,
@@ -45,6 +45,7 @@ import {
   type MapDef,
   type Player,
 } from "../packages/engine/src";
+import { POCKETS, testBomb } from "../packages/engine/test/helpers";
 
 /** What each level should score: [lowest, highest] that still counts as on target. */
 const TARGETS = {
@@ -82,8 +83,10 @@ function think(s: GameState, id: string, level: BotLevel | BotProfile): Input {
   return input;
 }
 
-function duelGame(map: MapDef, seed: number, timeLimitTicks: number | null = null): GameState {
-  return createGame({ map, seed, timeLimitTicks, players: [{ id: BOT, color: 0 }, { id: PERSON, color: 1 }] });
+/** The bot against the person; on `rows` drawn for the purpose, or on a map. */
+function duelGame(arena: string[] | MapDef, seed: number): GameState {
+  const map = Array.isArray(arena) ? { id: "bench", name: "bench", rows: arena, softDensity: 0 } : arena;
+  return createGame({ map, seed, players: [{ id: BOT, color: 0 }, { id: PERSON, color: 1 }] });
 }
 
 const overlaps = (p: Player, x: number, y: number) => {
@@ -93,12 +96,7 @@ const overlaps = (p: Player, x: number, y: number) => {
 
 /** A bomb that turns up on (x, y) as if `owner` had just laid it there. */
 function layBomb(s: GameState, x: number, y: number, range: number, owner: string): Bomb {
-  const bomb: Bomb = {
-    id: s.nextBombId++, owner, x, y, ticksLeft: BOMB_FUSE_TICKS, range,
-    remote: false, power: false, pierce: false, rubber: false, mine: false,
-    slide: null, slideTimer: 0, slideInterval: KICK_INTERVAL_TICKS, held: null, flight: null,
-  };
-  s.bombs.push(bomb);
+  const bomb = testBomb(s, x, y, { owner, range, ticksLeft: BOMB_FUSE_TICKS });
   for (const p of s.players) if (overlaps(p, x, y)) p.passing.push(bomb.id);
   return bomb;
 }
@@ -177,13 +175,11 @@ function score(metric: keyof typeof TARGETS, level: BotLevel, value: number) {
  * A bomb that will burn the whole corridor turns up beside the bot with the usual three seconds on it: the
  * nearest pocket it can still get to is two to five steps away, so anyone who looks and runs makes it.
  */
-const DODGE_ROWS = ["#####################", "#.........2.........#", "#####################", "#.........1.........#", "####.###.###.###.####", "#####################"];
-
 function dodge(level: BotLevel, trials: number): number {
   let caught = 0;
   let fair = 0;
   for (let seed = 1; seed <= trials; seed++) {
-    const s = duelGame({ id: "bench", name: "bench", rows: DODGE_ROWS, softDensity: 0 }, seed * 7919);
+    const s = duelGame(POCKETS, seed * 7919);
     const [bot, person] = s.players;
     person.invuln = Infinity;
     bot.bombsMax = 0; // defence alone: no bombs of its own to get in its way
@@ -197,7 +193,7 @@ function dodge(level: BotLevel, trials: number): number {
       (d) => canPlaceAt(s, bx + d.dx, by + d.dy) && withBomb(s, bx + d.dx, by + d.dy, s.width, PERSON, () => canSurvive(s, bot)),
     );
     if (beside.length === 0) continue;
-    const d = beside[whole(beside.length, dice)];
+    const d = pickRandom(dice, beside);
     layBomb(s, bx + d.dx, by + d.dy, s.width, PERSON);
     fair++;
     for (let t = 0; t < BOMB_FUSE_TICKS + FLAME_TICKS && bot.alive; t++) step(s, { [BOT]: think(s, BOT, level) });
@@ -231,7 +227,7 @@ function tip(level: BotLevel, trials: number): number {
     inner[1 + range] = "1"; // the bomb goes on column 3, so its blast ends on column 3 + range
     const rows = ["#".repeat(20), `#${inner.join("")}#`, "#".repeat(20)];
     for (let seed = 1; seed <= trials; seed++) {
-      const s = duelGame({ id: "bench", name: "bench", rows, softDensity: 0 }, seed * 9973 + range);
+      const s = duelGame(rows, seed * 9973 + range);
       s.players[1].invuln = Infinity;
       layBomb(s, 3, 1, range, PERSON);
       for (let t = 0; t < BOMB_FUSE_TICKS + FLAME_TICKS && s.players[0].alive; t++) step(s, { [BOT]: think(s, BOT, level) });
@@ -530,7 +526,7 @@ if (wants("duel")) {
         step(s, { [ids[0]]: think(s, ids[0], levels[0]), [ids[1]]: think(s, ids[1], levels[1]) });
       }
       const winner = s.winner === null ? null : levels[ids.indexOf(s.winner)];
-      wins[winner === null || a === b ? 2 : winner === a ? 0 : 1]++;
+      wins[winner === null ? 2 : winner === a ? 0 : 1]++;
     }
     row(`${a} x ${b}`.padEnd(14), wins.map((n) => percent(n, matches).toFixed(0)));
   }

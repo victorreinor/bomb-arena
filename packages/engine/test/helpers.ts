@@ -1,5 +1,6 @@
 import {
   FLAME_TICKS,
+  RESULTS_TICKS,
   botInput,
   KICK_INTERVAL_TICKS,
   TILE,
@@ -21,21 +22,24 @@ import {
   type RoomState,
 } from "../src";
 
-/** Build a state from ASCII rows; `.` empty, `#` hard, `+` soft, digits spawn. */
+/** Build a state from ASCII rows; `.` empty, `#` hard, `+` soft, digits spawn. `teams` puts p1, p2… on a side each (a team match). */
 export function makeGame(
   rows: string[],
   playerCount = 2,
   seed = 1,
-  options: Pick<CreateGameOptions, "revenge" | "timeLimitTicks" | "countdownTicks"> = {},
+  { teams, ...options }: Pick<CreateGameOptions, "revenge" | "friendlyFire" | "timeLimitTicks" | "countdownTicks"> & { teams?: number[] } = {},
 ): GameState {
   const map: MapDef = { id: "test", name: "test", rows, softDensity: 0 };
   return createGame({
     map,
     seed,
     ...options,
-    players: Array.from({ length: playerCount }, (_, i) => ({ id: `p${i + 1}`, color: i })),
+    players: Array.from({ length: playerCount }, (_, i) => ({ id: `p${i + 1}`, color: i, team: teams?.[i] })),
   });
 }
+
+/** A corridor that one bomb sets all alight, with pockets to duck into; p2 out of reach in a corridor of its own. */
+export const POCKETS = ["#####################", "#.........2.........#", "#####################", "#.........1.........#", "####.###.###.###.####", "#####################"];
 
 /** One-row arena: `corridor("1....2")` is a walled strip with p1 on the left and p2 on the right. */
 export const corridor = (inner: string) => ["#".repeat(inner.length + 2), `#${inner}#`, "#".repeat(inner.length + 2)];
@@ -67,7 +71,8 @@ export function testBomb(s: GameState, x: number, y: number, extra: Partial<Bomb
 
 /** A flame put straight onto (x, y) (by default from p2's bomb, burning for FLAME_TICKS). */
 export function testFlame(s: GameState, x: number, y: number, extra: Partial<Flame> = {}): Flame {
-  const flame: Flame = { x, y, arms: 0, ticksLeft: FLAME_TICKS, owner: "p2", ...extra };
+  const owner = extra.owner ?? "p2";
+  const flame: Flame = { x, y, arms: 0, ticksLeft: FLAME_TICKS, owner, owners: owner ? [owner] : [], ...extra };
   s.flames.push(flame);
   return flame;
 }
@@ -116,6 +121,18 @@ export function startedMatch({ inCountdown = false, mapId = "classic" } = {}): R
 /** Steps a room to the end of its match's "Ready… Go!" countdown: the next step is the first one inputs count in. */
 export function pastCountdown(room: RoomState) {
   while (room.game && room.game.tick < room.game.goTick) stepRoom(room);
+}
+
+/** Ends a room's match with only `standing` left alive: the result is in and the podium still up. */
+export function finishMatch(room: RoomState, ...standing: string[]) {
+  pastCountdown(room);
+  for (const p of room.game!.players) if (!standing.includes(p.id)) p.alive = false;
+  stepRoom(room);
+}
+
+/** Sees the podium out: the room is back in the lobby. */
+export function backToLobby(room: RoomState) {
+  for (let i = 0; i <= RESULTS_TICKS && room.phase === "playing"; i++) stepRoom(room);
 }
 
 /** A client message from member `id`, as the server would apply it (matches started this way use seed 7). */

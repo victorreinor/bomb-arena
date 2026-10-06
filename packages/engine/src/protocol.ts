@@ -5,6 +5,8 @@ import type { Bomb, Flame, GameState, Player, Tile } from "./types";
 export const MIN_MEMBERS = 2;
 export const MAX_MEMBERS = 4;
 export const PLAYER_COLORS = 4;
+/** how many sides a team match has */
+export const TEAM_COUNT = 2;
 export const ROOM_CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ";
 export const ROOM_CODE_LENGTH = 5;
 export const MAX_NAME_LENGTH = 12;
@@ -44,11 +46,16 @@ export interface MemberView {
   score: number;
   /** a computer player's level (added by the host); null for people */
   bot: BotLevel | null;
+  /** the side they play on when the room is in teams (0 or 1); a server from before teams doesn't send it */
+  team?: number;
 }
 
 export interface RoomResult {
+  /** who won: in a team match, everyone on the winning side */
   winnerName: string | null;
   winnerColor: number | null;
+  /** the side that won a team match; null (or missing, from an older server) otherwise */
+  winnerTeam?: number | null;
   /** this win also took the best-of-N series (the score starts over next match) */
   seriesWon: boolean;
 }
@@ -57,7 +64,10 @@ export interface RoomView {
   code: string;
   phase: "lobby" | "playing";
   hostId: string | null;
+  /** the map picked or, with `randomMap`, the one drawn for the match being played (or just played) */
   mapId: string;
+  /** a map is drawn at random for every match; a server from before the option doesn't send this */
+  randomMap?: boolean;
   /** how many players the room accepts (2-4), set by the host */
   capacity: number;
   /** increments every match; lets clients reset their snapshot buffers */
@@ -67,6 +77,10 @@ export interface RoomView {
   lastResult: RoomResult | null;
   /** revenge mode: the dead keep throwing bombs from the outer wall */
   revenge: boolean;
+  /** matches are between two teams, by each member's `team`; a server from before teams doesn't send this */
+  teams?: boolean;
+  /** in a team match, whether a team-mate's blast kills */
+  friendlyFire?: boolean;
   bestOf: number;
   /** minutes before sudden death; 0 = no limit */
   timeLimit: number;
@@ -75,9 +89,14 @@ export interface RoomView {
 export type ClientMsg =
   | { t: "color"; color: number }
   | { t: "ready"; ready: boolean }
+  /** a map's id, or RANDOM_MAP to have one drawn for every match */
   | { t: "map"; mapId: string }
   | { t: "capacity"; capacity: number }
   | { t: "revenge"; on: boolean }
+  | { t: "teams"; on: boolean }
+  | { t: "friendlyFire"; on: boolean }
+  /** the side to play on; with `id`, the host moves that member (a bot, say) */
+  | { t: "team"; team: number; id?: string }
   | { t: "bestOf"; n: number }
   | { t: "timeLimit"; minutes: number }
   | { t: "leave" }
@@ -132,14 +151,15 @@ export type Board = Pick<GameState, "tiles" | "floor">;
 
 /**
  * What goes over the wire every tick: the game minus what clients never use (the RNG, so nobody can
- * predict drops, the bomb id counter, whose blast each flame is), with the board (`tiles` and `floor`)
+ * predict drops, the bomb id counter, whose blast each flame is, whether friendly fire is on: the lobby
+ * says), with the board (`tiles` and `floor`)
  * only when it changed and, for clients that speak protocol 2, `changes` standing in for `players` and
  * `bombs` between full ones.
  */
-export type GameSnapshot = Omit<GameState, "tiles" | "floor" | "rng" | "nextBombId" | "flames" | "players" | "bombs"> & {
+export type GameSnapshot = Omit<GameState, "tiles" | "floor" | "rng" | "nextBombId" | "friendlyFire" | "flames" | "players" | "bombs"> & {
   tiles?: Tile[];
   floor?: number[] | null;
-  flames: Omit<Flame, "owner">[];
+  flames: Omit<Flame, "owner" | "owners">[];
   players?: Player[];
   bombs?: Bomb[];
   changes?: SnapshotChanges;
@@ -150,8 +170,8 @@ export type GameSnapshot = Omit<GameState, "tiles" | "floor" | "rng" | "nextBomb
  * every snapshot) only what changed in them goes; without, or once the players no longer line up, all of them.
  */
 export function toSnapshot(game: GameState, withBoard: boolean, sent: SentLists | null = null): GameSnapshot {
-  const { rng: _rng, nextBombId: _next, tiles, floor, flames, players, bombs, ...rest } = game;
-  const lean: GameSnapshot = { ...rest, flames: flames.map(({ owner: _owner, ...f }) => f) };
+  const { rng: _rng, nextBombId: _next, friendlyFire: _friendlyFire, tiles, floor, flames, players, bombs, ...rest } = game;
+  const lean: GameSnapshot = { ...rest, flames: flames.map(({ owner: _owner, owners: _owners, ...f }) => f) };
   const sameLineUp = sent?.players.length === players.length && sent.players.every((p, i) => p.id === players[i].id);
   if (sent && sameLineUp) {
     const known = new Map(sent.bombs.map((b) => [b.id, b]));
@@ -197,12 +217,14 @@ export function fromSnapshot(snap: GameSnapshot, lastBoard: Board, last: SentLis
   if (!players || !bombs) return null;
   return {
     ...rest,
-    players,
+    // a server from before teams says nothing of them: everyone is on nobody's side
+    players: players.map((p) => (p.team === undefined ? { ...p, team: null } : p)),
     bombs,
     tiles: snap.tiles ?? lastBoard.tiles,
     floor: snap.tiles ? (snap.floor ?? null) : lastBoard.floor,
-    flames: snap.flames.map((f) => ({ ...f, owner: "" })),
+    flames: snap.flames.map((f) => ({ ...f, owner: "", owners: [] })),
     goTick: snap.goTick ?? 0,
+    friendlyFire: true,
     rng: 0,
     nextBombId: 0,
   };
