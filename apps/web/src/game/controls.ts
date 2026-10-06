@@ -21,6 +21,14 @@ export function fourWay(x: number, y: number, deadZone: number): { dx: number; d
   return Math.abs(x) >= Math.abs(y) ? { dx: Math.sign(x), dy: 0 } : { dx: 0, dy: Math.sign(y) };
 }
 
+/** What each control is, on the keyboard (`PLAYER_KEYS` in input.ts) and on a gamepad (`BTN` below), as the screens tell it. */
+export const CONTROL_HINTS = [
+  { what: "Mover", keys: "WASD ou setas", pad: "direcional ou analógico" },
+  { what: "Bomba", keys: "Espaço ou Enter", pad: "A" },
+  { what: "Ação", keys: "Shift", pad: "B ou X" },
+  { what: "Pet", keys: "E ou /", pad: "Y ou RB" },
+];
+
 // Standard gamepad layout (https://w3c.github.io/gamepad/#remapping)
 const BTN = { A: 0, B: 1, X: 2, Y: 3, RB: 5, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
 const STICK_DEAD_ZONE = 0.5;

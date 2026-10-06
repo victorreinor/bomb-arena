@@ -2,13 +2,16 @@ import { useEffect, useState } from "react";
 import {
   BEST_OF_OPTIONS,
   DEFAULT_BOT_LEVEL,
+  MIN_TEAM_MEMBERS,
   PLAYER_COLORS,
   RANDOM_MAP,
   TEAM_COUNT,
   TIME_LIMIT_OPTIONS,
   canStart,
+  fewestSeats,
   getMap,
   mapSeats,
+  picksSides,
   startBlocker,
   type BotLevel,
   type ClientMsg,
@@ -18,13 +21,12 @@ import {
 } from "@bomb-arena/engine";
 import { audio } from "../game/audio";
 import { BOT_LEVEL_NAMES, BOT_LEVEL_OPTIONS, nextBotLevel } from "../game/botLevels";
-import { ItemIcon, PetIcon } from "../game/ItemIcon";
-import { ITEM_INFO, PET_INFO } from "../game/items";
 import { COLOR_CSS, COLOR_NAMES } from "../game/colors";
 import { PingBadge } from "../game/PingBadge";
 import { bestOfLabel, showsScore, timeLimitLabel } from "../game/MatchTimer";
 import { TEAM_NAMES, teamStyle, victorLabel } from "../game/teams";
 import { HostSetting, MODE_OPTIONS, OptionPicker, capacityOptions } from "./fields";
+import { LegendDialog } from "./LegendDialog";
 import { MapPicker } from "./MapPicker";
 
 interface Props {
@@ -46,6 +48,8 @@ export function Lobby({ room, me, reconnecting, send, ping, onLeave }: Props) {
   const startable = canStart(room);
   const link = `${location.origin}${location.pathname}?sala=${room.code}`;
   const taken = new Map<number, MemberView>(room.members.map((m) => [m.color, m]));
+  // with the sides drawn at every start, the lobby's own sides mean nothing: one list, and nobody picks
+  const pickSides = picksSides(room);
 
   const copy = async () => {
     try {
@@ -64,6 +68,7 @@ export function Lobby({ room, me, reconnecting, send, ping, onLeave }: Props) {
   /** What the host's start button says while something keeps the match from starting. */
   const waitingFor: Record<StartBlocker, string> = {
     players: `Aguardando jogadores (${connected.length}/${room.capacity})…`,
+    teamPlayers: `Times precisam de ${MIN_TEAM_MEMBERS} jogadores ou mais`,
     map: `Esse mapa é para ${mapSeats(getMap(room.mapId))} jogadores`,
     sides: "Os dois times precisam de alguém",
     ready: "Aguardando todos ficarem prontos…",
@@ -98,7 +103,7 @@ export function Lobby({ room, me, reconnecting, send, ping, onLeave }: Props) {
             🏆 {m.score}
           </span>
         )}
-        {room.teams && (isHost || m.id === me) && (
+        {pickSides && (isHost || m.id === me) && (
           <button
             className="ghost tag"
             title={swap}
@@ -161,21 +166,36 @@ export function Lobby({ room, me, reconnecting, send, ping, onLeave }: Props) {
             <div className="settings team-settings">
               <HostSetting title="Modo" editable={isHost} value={room.teams} options={MODE_OPTIONS} onChange={(on) => send({ t: "teams", on })} />
               {room.teams && (
-                <HostSetting
-                  title="Fogo amigo"
-                  hint="Ligado, a explosão de um companheiro de time também te pega. A sua própria sempre pega."
-                  editable={isHost}
-                  value={room.friendlyFire ?? true}
-                  options={[
-                    { value: true, label: "Ligado" },
-                    { value: false, label: "Desligado" },
-                  ]}
-                  onChange={(on) => send({ t: "friendlyFire", on })}
-                />
+                <>
+                  <HostSetting
+                    title="Fogo amigo"
+                    hint="Ligado, a explosão de um companheiro de time também te pega. A sua própria sempre pega."
+                    editable={isHost}
+                    value={room.friendlyFire ?? true}
+                    options={[
+                      { value: true, label: "Ligado" },
+                      { value: false, label: "Desligado" },
+                    ]}
+                    onChange={(on) => send({ t: "friendlyFire", on })}
+                  />
+                  {room.randomTeams !== undefined && (
+                    <HostSetting
+                      title="Times"
+                      hint="Sorteados: a cada partida o jogo monta os times (2x2 ou 2x1) e troca quem joga com quem."
+                      editable={isHost}
+                      value={room.randomTeams}
+                      options={[
+                        { value: false, label: "Escolhidos" },
+                        { value: true, label: "Sorteados" },
+                      ]}
+                      onChange={(on) => send({ t: "randomTeams", on })}
+                    />
+                  )}
+                </>
               )}
             </div>
           )}
-          {room.teams ? (
+          {pickSides ? (
             // one list per side: each picks their own with ⇄, and the host can move anyone
             TEAM_NAMES.map((teamName, team) => {
               const side = room.members.filter((m) => (m.team ?? 0) === team);
@@ -227,33 +247,7 @@ export function Lobby({ room, me, reconnecting, send, ping, onLeave }: Props) {
             </>
           )}
 
-          <details className="legend">
-            <summary>Itens, pets e controles</summary>
-            <p className="muted">Mover: WASD ou setas · Bomba: Espaço/Enter · Ação: Shift · Pet: E ou / · ou controle</p>
-            <ul>
-              {(Object.keys(ITEM_INFO) as (keyof typeof ITEM_INFO)[]).map((kind) => (
-                <li key={kind}>
-                  <ItemIcon kind={kind} size={28} />
-                  <span>
-                    <b>{ITEM_INFO[kind].name}</b>
-                    <span className="desc">{ITEM_INFO[kind].desc}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <h3>Pets (saem do ovo; aguentam um golpe por você)</h3>
-            <ul>
-              {(Object.keys(PET_INFO) as (keyof typeof PET_INFO)[]).map((kind) => (
-                <li key={kind}>
-                  <PetIcon kind={kind} size={28} />
-                  <span>
-                    <b>{PET_INFO[kind].name}</b>
-                    <span className="desc">{PET_INFO[kind].desc}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </details>
+          <LegendDialog />
         </section>
 
         <section className="card">
@@ -295,7 +289,7 @@ export function Lobby({ room, me, reconnecting, send, ping, onLeave }: Props) {
               title="Vagas"
               editable={isHost}
               value={room.capacity}
-              options={capacityOptions(room.members.length)}
+              options={capacityOptions(fewestSeats(room))}
               onChange={(capacity) => send({ t: "capacity", capacity })}
             />
           </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MAX_MEMBERS, isValidRoomCode, normalizeRoomCode, type BotLevel } from "@bomb-arena/engine";
+import { MAX_MEMBERS, clampCapacity, isValidRoomCode, minSeats, normalizeRoomCode, type BotLevel } from "@bomb-arena/engine";
 import { savedName, saveName } from "../config";
 import { audio } from "../game/audio";
 import { BOT_LEVEL_OPTIONS } from "../game/botLevels";
@@ -21,6 +21,8 @@ export function Home({ initialCode, error, onCreate, onJoin, onLocal }: Props) {
   const [code, setCode] = useState(initialCode);
   const [capacity, setCapacity] = useState(MAX_MEMBERS);
   const [teams, setTeams] = useState(false);
+  // a team room seats three at least, as the server would make it
+  const seats = clampCapacity(capacity, teams);
   const cleanCode = normalizeRoomCode(code);
   const codeOk = isValidRoomCode(cleanCode);
   const nameOk = name.trim().length > 0;
@@ -67,14 +69,14 @@ export function Home({ initialCode, error, onCreate, onJoin, onLocal }: Props) {
 
         <div className="field">
           <span>Jogadores na sala</span>
-          <CapacityPicker label="Jogadores na sala" value={capacity} onChange={setCapacity} />
+          <CapacityPicker label="Jogadores na sala" value={seats} min={minSeats(teams)} onChange={setCapacity} />
         </div>
         <div className="field">
           <span>Modo</span>
           <OptionPicker label="Modo" value={teams} options={MODE_OPTIONS} onChange={setTeams} />
         </div>
 
-        <button className="primary" disabled={!nameOk} onClick={() => submit(() => onCreate(name.trim(), capacity, teams))}>
+        <button className="primary" disabled={!nameOk} onClick={() => submit(() => onCreate(name.trim(), seats, teams))}>
           Criar sala
         </button>
 

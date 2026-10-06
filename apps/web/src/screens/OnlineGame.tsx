@@ -3,7 +3,7 @@ import { TICK_RATE, type ClientMsg, type GameState, type Input, type RoomView } 
 import { audio } from "../game/audio";
 import { Effects } from "../game/effects";
 import { diffGame, type GameEvent } from "../game/events";
-import { combineInputs, useControls, type GamepadReader, type TouchPad } from "../game/controls";
+import { CONTROL_HINTS, combineInputs, useControls, type GamepadReader, type TouchPad } from "../game/controls";
 import { GameFrame } from "../game/GameFrame";
 import { feel } from "../game/haptics";
 import { hudKey } from "../game/hud";
@@ -199,7 +199,7 @@ export function OnlineGame({ room, me, buffer, send, ping, onLeave }: Props) {
           </div>
         )
       }
-      hint={<p>Mover: WASD, setas ou controle · Bomba: Espaço/Enter (A) · Ação: Shift (B) · Pet: E ou / (Y)</p>}
+      hint={<p>{CONTROL_HINTS.map((c) => `${c.what}: ${c.keys} (${c.pad})`).join(" · ")}</p>}
       pad={playing ? touch : null}
       onLeave={onLeave}
     />

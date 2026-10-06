@@ -89,7 +89,7 @@ button {
 .title { margin: 0; font-size: 36px; letter-spacing: 4px; text-transform: uppercase; color: var(--accent); text-shadow: 0 3px 0 #7a4a00; }
 .subtitle { margin: -8px 0 4px; color: var(--muted); }
 .card { width: 100%; display: flex; flex-direction: column; gap: 12px; padding: 18px; background: var(--panel); border-radius: 10px; }
-.card h2 { margin: 6px 0 0; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+.card h2, .legend h3 { margin: 6px 0 0; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
 /* 16px: iPhones zoom into any field with smaller text when it's tapped */
 input, select {
@@ -159,12 +159,24 @@ button.channel.off { opacity: 0.55; background: #1f1f30; }
 .stats { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .line-charges { display: inline-flex; align-items: center; gap: 2px; }
 .curse { color: #c9a0ff; font-size: 12px; }
-.legend summary { cursor: pointer; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+/* items, pets and controls: a dialog over the lobby; it scrolls, its heading and ✕ stay put */
+.legend-open { align-self: flex-start; font-size: 12px; padding: 6px 12px; }
+.legend-dialog { width: min(560px, calc(100vw - 32px)); max-height: min(85vh, 760px); overflow: auto; padding: 0; color: var(--text); }
+.legend-dialog::backdrop { background: rgba(8, 8, 18, 0.72); }
+.legend { padding: 0 18px 18px; }
+.legend-header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0 8px; background: var(--panel); }
+.legend-header h2 { margin: 0; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; color: var(--accent); }
+.legend-header button { padding: 4px 10px; }
 .legend ul { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .legend li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
 .legend li b { display: block; }
 .legend li span.desc { color: var(--muted); font-size: 12px; }
-.legend h3 { margin: 12px 0 0; font-size: 12px; color: var(--muted); }
+.legend h3 { margin-top: 16px; }
+.legend .muted { margin-top: 8px; font-size: 12px; }
+.controls-table { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 13px; }
+.controls-table th, .controls-table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid #34344d; }
+.controls-table thead th { font-size: 11px; font-weight: normal; color: var(--muted); }
+.controls-table tbody th { color: var(--accent); }
 
 /* ---------- podium ---------- */
 .podium-overlay { gap: 6px; animation: podium-fade 0.5s 1.1s backwards; padding: 12px; background: rgba(8, 8, 18, 0.84); }
@@ -230,10 +242,11 @@ button.channel.off { opacity: 0.55; background: #1f1f30; }
 
 /* ---------- settings panel ---------- */
 .settings-anchor { position: relative; }
+/* the surface of whatever floats over the page: the settings menu, the items dialog */
+.settings-panel, .legend-dialog { background: var(--panel); border: 2px solid #34344d; border-radius: 10px; box-shadow: 0 8px 24px #0008; }
 .settings-panel {
   position: absolute; right: 0; top: calc(100% + 6px); width: 240px; z-index: 20;
   display: flex; flex-direction: column; gap: 12px; padding: 14px;
-  background: var(--panel); border: 2px solid #34344d; border-radius: 10px; box-shadow: 0 8px 24px #0008;
 }
 .settings-panel label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .settings-panel label.check { flex-direction: row; align-items: center; gap: 8px; }
@@ -465,7 +478,8 @@ body:has(.game-menu) .sound-controls { display: none; }
 .screen, .lobby, .game-page { --enter-from: translateY(10px); animation: enter 0.35s ease-out both; }
 .lobby-grid > .card { --enter-from: translateY(14px); animation: enter 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
 .lobby-grid > .card:nth-child(2) { animation-delay: 0.07s; }
-.notice, .map-text, .member-state, details[open] > :not(summary) { --enter-from: translateY(6px); animation: enter 0.28s ease-out both; }
+.notice, .map-text, .member-state { --enter-from: translateY(6px); animation: enter 0.28s ease-out both; }
+.legend-dialog[open] { --enter-from: translateY(12px) scale(0.98); animation: enter 0.2s ease-out; }
 .map-text { animation-delay: 0.05s; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .map-slide { animation: enter 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.1) both; }
 .map-slide.next { --enter-from: translateX(36px) scale(0.96); }

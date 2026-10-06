@@ -2,7 +2,7 @@ import { MAX_MEMBERS, MAX_NAME_LENGTH, MIN_MEMBERS } from "@bomb-arena/engine";
 
 const CAPACITIES = Array.from({ length: MAX_MEMBERS - MIN_MEMBERS + 1 }, (_, i) => MIN_MEMBERS + i);
 
-/** Room sizes to pick from; those below `min` (people already in the room) are disabled. */
+/** Room sizes to pick from; those below `min` (people already in the room, three in teams) are disabled. */
 export const capacityOptions = (min = MIN_MEMBERS): Option<number>[] =>
   CAPACITIES.map((n) => ({ value: n, label: String(n), disabled: n < min }));
 
@@ -10,7 +10,7 @@ export const capacityOptions = (min = MIN_MEMBERS): Option<number>[] =>
 export function CapacityPicker({ value, onChange, min = MIN_MEMBERS, label }: {
   value: number;
   onChange: (n: number) => void;
-  /** smaller sizes are disabled (people already in the room) */
+  /** smaller sizes are disabled (people already in the room, three in teams) */
   min?: number;
   label: string;
 }) {
