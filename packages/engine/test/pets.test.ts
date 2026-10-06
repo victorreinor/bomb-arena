@@ -183,6 +183,17 @@ describe("kicker", () => {
     run(s, 10);
     expect(s.bombs[0].x).toBe(13); // stops in front of p2 on tile 14
   });
+
+  test("with no bomb ahead, it kicks the one they stand on", () => {
+    const s = makeGame(corridor("1............2"));
+    mount(s, "kicker");
+    s.players[0].facing = "right";
+    step(s, { p1: { bomb: true } });
+    step(s, { p1: { pet: true } });
+    expect(s.players[0].pet!.cooldown).toBe(PET_COOLDOWN_TICKS.kicker);
+    run(s, 16);
+    expect(s.bombs[0].x).toBe(13);
+  });
 });
 
 describe("cooldowns", () => {

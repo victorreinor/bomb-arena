@@ -70,6 +70,41 @@ describe("kick", () => {
     run(s, 20, { p1: { dx: 1 } });
     expect(s.bombs[0].x).toBe(1);
   });
+
+  // it used to take stepping off the bomb and walking back into it
+  test("standing on the bomb just laid, the action button kicks it the way they face", () => {
+    const s = makeGame(corridor("1.........2"));
+    const p = s.players[0];
+    p.kick = true;
+    p.facing = "right";
+    step(s, { p1: { bomb: true } });
+    step(s, { p1: { action: true } });
+    run(s, 40);
+    expect(s.bombs[0].x).toBe(10); // p2 stands on tile 11
+    expect(p.x).toBe(1.5); // without taking a step
+  });
+
+  test("without the boots the action button leaves the bomb underfoot alone", () => {
+    const s = makeGame(corridor("1.........2"));
+    s.players[0].facing = "right";
+    step(s, { p1: { bomb: true } });
+    step(s, { p1: { action: true } });
+    run(s, 10);
+    expect(s.bombs[0]).toMatchObject({ x: 1, slide: null, flight: null });
+  });
+
+  test("the bomb underfoot is kicked away before a remote one is set off", () => {
+    const s = makeGame(corridor("1.........2"));
+    const p = s.players[0];
+    Object.assign(p, { kick: true, remote: true, facing: "right" });
+    step(s, { p1: { bomb: true } });
+    step(s, { p1: { action: true } });
+    expect(s.bombs).toHaveLength(1);
+    expect(s.bombs[0].x).toBe(2);
+    step(s, { p1: { action: true } }); // out from under them: now the button sets it off
+    step(s);
+    expect(s.bombs).toHaveLength(0);
+  });
 });
 
 describe("punch", () => {
@@ -127,6 +162,26 @@ describe("punch", () => {
     const bomb = testBomb(s, 2, 1);
     step(s, { p1: { action: true } });
     expect(bomb.flight).toBeNull();
+  });
+
+  test("with no bomb ahead, the one they stand on is punched", () => {
+    const s = makeGame(corridor("1.........2"));
+    s.players[0].punch = true;
+    s.players[0].facing = "right";
+    step(s, { p1: { bomb: true } });
+    step(s, { p1: { action: true } });
+    expect(s.bombs[0].flight!.toX).toBe(4);
+  });
+
+  test("the bomb ahead goes before the one underfoot", () => {
+    const s = makeGame(corridor("1.........2"));
+    s.players[0].punch = true;
+    s.players[0].facing = "right";
+    step(s, { p1: { bomb: true } });
+    const ahead = testBomb(s, 2, 1, { owner: "p2" });
+    step(s, { p1: { action: true } });
+    expect(ahead.flight).not.toBeNull();
+    expect(s.bombs.find((b) => b.owner === "p1")!.flight).toBeNull();
   });
 });
 

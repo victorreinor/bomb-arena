@@ -632,18 +632,24 @@ function placeBomb(state: GameState, p: Player) {
 // ----------------------------------------------------- special abilities
 
 /** What the contextual button does, and to which bomb. */
-export type Action = { act: "throw" } | { act: "lift" | "punch" | "detonate"; bomb: Bomb };
+export type Action = { act: "throw" } | { act: "lift" | "punch" | "kick" | "detonate"; bomb: Bomb };
 
-/** What the contextual button would do right now: throw > lift (glove) > punch > detonate (remote); null for nothing. */
+/**
+ * What the contextual button would do right now: throw > lift (glove) > punch > kick > detonate (remote);
+ * null for nothing. The bomb underfoot counts for all of them, so that one just laid can be sent off without
+ * stepping off it and back: a punch goes for the bomb ahead and failing that the one underfoot, a kick for
+ * the one underfoot alone (the one ahead is kicked by walking into it).
+ */
 export function actionFor(state: GameState, p: Player): Action | null {
   if (p.holding !== null) return { act: "throw" };
   const tx = Math.floor(p.x);
   const ty = Math.floor(p.y);
-  const under = p.glove ? bombAt(state, tx, ty) : undefined;
-  if (under) return { act: "lift", bomb: under };
+  const under = bombAt(state, tx, ty);
+  if (under && p.glove) return { act: "lift", bomb: under };
   const d = DIR_VEC[p.facing];
-  const ahead = p.punch ? bombAt(state, tx + d.dx, ty + d.dy) : undefined;
-  if (ahead) return { act: "punch", bomb: ahead };
+  const struck = p.punch ? (bombAt(state, tx + d.dx, ty + d.dy) ?? under) : undefined;
+  if (struck) return { act: "punch", bomb: struck };
+  if (under && p.kick) return { act: "kick", bomb: under };
   // state.bombs is kept in id order, so the first match is the oldest
   const oldest = p.remote ? state.bombs.find((b) => b.owner === p.id && b.remote && !b.flight) : undefined;
   return oldest ? { act: "detonate", bomb: oldest } : null;
@@ -661,6 +667,8 @@ function doAction(state: GameState, p: Player) {
       return;
     case "punch":
       return void launchBomb(state, action.bomb, p.facing);
+    case "kick":
+      return slideBomb(action.bomb, p.facing, KICK_INTERVAL_TICKS);
     case "detonate":
       action.bomb.ticksLeft = 0;
   }
@@ -714,15 +722,20 @@ function stun(state: GameState, p: Player) {
   dropHeld(state, p);
 }
 
+/** Sets a bomb sliding `dir`-wards, a tile every `interval` ticks, the first of them this very tick. */
+function slideBomb(bomb: Bomb, dir: Dir, interval: number) {
+  bomb.slide = dir;
+  bomb.slideTimer = 1;
+  bomb.slideInterval = interval;
+}
+
 /** Walking into a bomb with the boots sends it sliding the way we face. */
 function tryKick(state: GameState, p: Player) {
   if (!p.kick) return;
   const d = DIR_VEC[p.facing];
   const bomb = bombAt(state, Math.floor(p.x) + d.dx, Math.floor(p.y) + d.dy);
   if (!bomb || bomb.slide || p.passing.includes(bomb.id)) return;
-  bomb.slide = p.facing;
-  bomb.slideTimer = 1;
-  bomb.slideInterval = KICK_INTERVAL_TICKS;
+  slideBomb(bomb, p.facing, KICK_INTERVAL_TICKS);
 }
 
 // ------------------------------------------------------------------ pets
@@ -760,12 +773,10 @@ function usePet(state: GameState, p: Player) {
       break;
     }
     case "kicker": {
-      // a kick strong enough to send the bomb flying along the floor, boots or not
-      const bomb = bombAt(state, tx + d.dx, ty + d.dy);
+      // a kick strong enough to send the bomb flying along the floor, boots or not: the one ahead, or failing that the one underfoot
+      const bomb = bombAt(state, tx + d.dx, ty + d.dy) ?? bombAt(state, tx, ty);
       if (bomb) {
-        bomb.slide = p.facing;
-        bomb.slideTimer = 1;
-        bomb.slideInterval = PET_KICK_INTERVAL_TICKS;
+        slideBomb(bomb, p.facing, PET_KICK_INTERVAL_TICKS);
         used = true;
       }
       break;
