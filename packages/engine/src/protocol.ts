@@ -7,6 +7,8 @@ export const MAX_MEMBERS = 4;
 export const PLAYER_COLORS = 4;
 /** how many sides a team match has */
 export const TEAM_COUNT = 2;
+/** the fewest players a team match takes: one against one would be everyone for themselves */
+export const MIN_TEAM_MEMBERS = 3;
 export const ROOM_CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ";
 export const ROOM_CODE_LENGTH = 5;
 export const MAX_NAME_LENGTH = 12;
@@ -81,6 +83,8 @@ export interface RoomView {
   teams?: boolean;
   /** in a team match, whether a team-mate's blast kills */
   friendlyFire?: boolean;
+  /** the sides are drawn for every match rather than picked; a server from before the option doesn't send this */
+  randomTeams?: boolean;
   bestOf: number;
   /** minutes before sudden death; 0 = no limit */
   timeLimit: number;
@@ -95,6 +99,7 @@ export type ClientMsg =
   | { t: "revenge"; on: boolean }
   | { t: "teams"; on: boolean }
   | { t: "friendlyFire"; on: boolean }
+  | { t: "randomTeams"; on: boolean }
   /** the side to play on; with `id`, the host moves that member (a bot, say) */
   | { t: "team"; team: number; id?: string }
   | { t: "bestOf"; n: number }

@@ -12,6 +12,12 @@ export function pickRandom<T>(state: { rng: number }, list: readonly T[]): T {
   return list[Math.floor(nextRandom(state) * list.length)];
 }
 
+/** One element of a (non-empty) list, drawn among those `stale` leaves in (among all of them, if it leaves none). */
+export function pickFresh<T>(state: { rng: number }, list: readonly T[], stale: (item: T) => boolean): T {
+  const fresh = list.filter((item) => !stale(item));
+  return pickRandom(state, fresh.length > 0 ? fresh : list);
+}
+
 /** A fresh random 32-bit seed for a new match. */
 export function randomSeed(): number {
   return (Math.random() * 2 ** 32) >>> 0;

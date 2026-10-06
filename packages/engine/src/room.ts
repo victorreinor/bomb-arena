@@ -8,6 +8,7 @@ import {
   MAX_MEMBERS,
   MAX_NAME_LENGTH,
   MIN_MEMBERS,
+  MIN_TEAM_MEMBERS,
   PLAYER_COLORS,
   TEAM_COUNT,
   TIME_LIMIT_OPTIONS,
@@ -19,11 +20,12 @@ import {
   type RoomResult,
   type RoomView,
 } from "./protocol";
+import { pickFresh } from "./rng";
 import { BUTTONS, emptyInput, type GameState, type Input } from "./types";
 
 export const RECONNECT_GRACE_TICKS = 10 * TICK_RATE;
-/** stirred into a match's seed to draw its map, so the draw isn't the first roll of the match's own dice */
-const MAP_DRAW_SALT = 0x9e3779b9;
+/** stirred into a match's seed to draw its map and sides, so the draws aren't the match's own first rolls */
+const DRAW_SALT = 0x9e3779b9;
 /** how long the podium stays up before everyone returns to the lobby */
 export const RESULTS_TICKS = 10 * TICK_RATE;
 
@@ -60,6 +62,10 @@ export interface RoomState {
   teams: boolean;
   /** in a team match, whether a team-mate's blast kills */
   friendlyFire: boolean;
+  /** the sides are drawn for every match (`drawTeams`) rather than picked */
+  randomTeams: boolean;
+  /** the splits drawn since every one was last played, the latest at the end (each one the ids on the first side) */
+  teamDraws: string[];
   bestOf: number;
   /** minutes before sudden death; 0 = no limit */
   timeLimit: number;
@@ -82,8 +88,19 @@ export interface RoomState {
  */
 export type HeldInput = Input & { seq?: number; since?: number };
 
-export const clampCapacity = (n: unknown): number =>
-  Number.isInteger(n) ? Math.max(MIN_MEMBERS, Math.min(MAX_MEMBERS, n as number)) : MAX_MEMBERS;
+/** The fewest seats a room can have: a team match takes three players. */
+export const minSeats = (teams: boolean) => (teams ? MIN_TEAM_MEMBERS : MIN_MEMBERS);
+
+/** A seat count within what a room (in teams or not) can have; all of them, if it isn't a whole number. */
+export const clampCapacity = (n: unknown, teams = false): number =>
+  Number.isInteger(n) ? Math.max(minSeats(teams), Math.min(MAX_MEMBERS, n as number)) : MAX_MEMBERS;
+
+/** The fewest seats a room can be cut down to: who is already in, and three in teams. */
+export const fewestSeats = (room: { teams?: boolean; members: readonly unknown[] }) =>
+  Math.max(room.members.length, minSeats(!!room.teams));
+
+/** Whether the room plays in teams that each member picks (rather than drawn for every match). */
+export const picksSides = (room: { teams?: boolean; randomTeams?: boolean }) => !!room.teams && !room.randomTeams;
 
 export function createRoom(code: string, capacity: number = MAX_MEMBERS, teams = false): RoomState {
   return {
@@ -92,10 +109,12 @@ export function createRoom(code: string, capacity: number = MAX_MEMBERS, teams =
     hostId: null,
     mapId: "classic",
     randomMap: false,
-    capacity: clampCapacity(capacity),
+    capacity: clampCapacity(capacity, teams),
     revenge: false,
     teams,
     friendlyFire: true,
+    randomTeams: false,
+    teamDraws: [],
     bestOf: 1,
     timeLimit: DEFAULT_TIME_LIMIT,
     scores: {},
@@ -231,9 +250,9 @@ export function setMap(room: RoomState, id: string, mapId: string): boolean {
   return true;
 }
 
-/** How many players the room takes; never below who is already in. */
+/** How many players the room takes; never below who is already in, nor below three in teams. */
 export function setCapacity(room: RoomState, id: string, capacity: number): boolean {
-  if (!hostInLobby(room, id) || capacity !== clampCapacity(capacity) || capacity < room.members.length) return false;
+  if (!hostInLobby(room, id) || capacity !== clampCapacity(capacity) || capacity < fewestSeats(room)) return false;
   if (room.capacity === capacity) return false;
   room.capacity = capacity;
   return true;
@@ -245,10 +264,11 @@ export function setRevenge(room: RoomState, id: string, on: boolean): boolean {
   return true;
 }
 
-/** Two teams, or everyone for themselves; changing it starts the score over. */
+/** Two teams, or everyone for themselves; changing it starts the score over, and a room of two seats grows a third. */
 export function setTeams(room: RoomState, id: string, on: boolean): boolean {
   if (!hostInLobby(room, id) || room.teams === on) return false;
   room.teams = on;
+  room.capacity = clampCapacity(room.capacity, on);
   room.scores = {};
   return true;
 }
@@ -259,10 +279,18 @@ export function setFriendlyFire(room: RoomState, id: string, on: boolean): boole
   return true;
 }
 
+/** Sides drawn for every match, or picked by each; changing it starts the score over (a series means one or the other). */
+export function setRandomTeams(room: RoomState, id: string, on: boolean): boolean {
+  if (!hostInLobby(room, id) || room.randomTeams === on) return false;
+  room.randomTeams = on;
+  room.scores = {};
+  return true;
+}
+
 /** Which side `target` plays on: anyone picks their own, between matches; the host may move anyone (the bots, for one). */
 export function setTeam(room: RoomState, id: string, team: number, target: string = id): boolean {
   const m = member(room, target);
-  if (!m || room.phase !== "lobby" || (target !== id && room.hostId !== id)) return false;
+  if (!m || room.phase !== "lobby" || !picksSides(room) || (target !== id && room.hostId !== id)) return false;
   if (!isIndex(team, TEAM_COUNT) || m.team === team) return false;
   m.team = team;
   return true;
@@ -327,25 +355,30 @@ export function leaveRoom(room: RoomState, id: string): boolean {
 export const tooManyForMap = (room: { mapId: string; randomMap?: boolean; members: Pick<MemberView, "connected">[] }) =>
   !room.randomMap && room.members.filter((m) => m.connected).length > mapSeats(getMap(room.mapId));
 
-/** Whether a room in teams has everyone (connected) on the same side: nobody to play against. */
-export const oneSided = (room: { teams?: boolean; members: Pick<MemberView, "connected" | "team">[] }) =>
-  !!room.teams && new Set(room.members.filter((m) => m.connected).map((m) => m.team)).size < 2;
+/** Whether a room picking its sides has everyone (connected) on the same one: nobody to play against. Drawn sides never are. */
+export const oneSided = (room: { teams?: boolean; randomTeams?: boolean; members: Pick<MemberView, "connected" | "team">[] }) =>
+  picksSides(room) && new Set(room.members.filter((m) => m.connected).map((m) => m.team)).size < 2;
 
-/** What a lobby must have settled before a match: too few players in, more than the map seats, one side empty, someone not ready. */
-export type StartBlocker = "players" | "map" | "sides" | "ready";
+/**
+ * What a lobby must have settled before a match: too few players in, too few for teams, more than the map
+ * seats, one side empty, someone not ready.
+ */
+export type StartBlocker = "players" | "teamPlayers" | "map" | "sides" | "ready";
 
 /** The room as `startBlocker` and `canStart` need it: a `RoomView` will do, and so will the room itself. */
-type Startable = Pick<RoomView, "phase" | "hostId" | "mapId" | "randomMap" | "teams"> & {
+type Startable = Pick<RoomView, "phase" | "hostId" | "mapId" | "randomMap" | "teams" | "randomTeams"> & {
   members: Pick<MemberView, "id" | "connected" | "ready" | "bot" | "team">[];
 };
 
 /**
  * What still keeps a match from starting (the first of them that applies), or null: at least two connected
- * players are in, the map has room for them, in teams there is someone on each side, and all are ready.
+ * players are in (three in teams), the map has room for them, in teams there is someone on each side, and all
+ * are ready.
  */
 export function startBlocker(room: Startable): StartBlocker | null {
   const connected = room.members.filter((m) => m.connected);
   if (connected.length < MIN_MEMBERS) return "players";
+  if (connected.length < minSeats(!!room.teams)) return "teamPlayers";
   if (tooManyForMap(room)) return "map";
   if (oneSided(room)) return "sides";
   return connected.every((m) => isReady(room, m)) ? null : "ready";
@@ -367,16 +400,48 @@ function lineUp(room: RoomState): Member[] {
   return room.teams ? sides(room).sort((a, b) => b.length - a.length).flat() : room.members;
 }
 
+/**
+ * Every way to split `ids` into two sides as even as they come (two against two, two against one), each as
+ * the ids on the first side, the bigger one. Two against two counts each pairing once: the first id's side.
+ */
+function evenSplits(ids: string[]): string[][] {
+  const size = Math.ceil(ids.length / 2);
+  const splits: string[][] = [];
+  for (let mask = 0; mask < 1 << ids.length; mask++) {
+    const side = ids.filter((_, i) => mask & (1 << i));
+    if (side.length === size && (ids.length % 2 === 1 || mask & 1)) splits.push(side);
+  }
+  return splits;
+}
+
+/**
+ * Sides for a match in a room that draws them: as even as they come, and no split played again until every
+ * one has been, so within three matches everyone has played alongside everyone (with three, each has a turn
+ * alone). A new round of them never starts with the split just played.
+ */
+function drawTeams(room: RoomState, dice: { rng: number }) {
+  const splits = evenSplits(room.members.map((m) => m.id));
+  const keys = splits.map((side) => side.join(" "));
+  const played = room.teamDraws.filter((k) => keys.includes(k)); // splits of who is in now
+  const roundOver = played.length === keys.length;
+  const pick = pickFresh(dice, keys, (k) => (roundOver ? k === played.at(-1) : played.includes(k)));
+  room.teamDraws = roundOver ? [pick] : [...played, pick];
+  const side = splits[keys.indexOf(pick)];
+  for (const m of room.members) m.team = side.includes(m.id) ? 0 : 1;
+}
+
 export function startGame(room: RoomState, id: string, seed: number): boolean {
   if (room.hostId !== id || !canStart(room)) return false;
   dropDisconnected(room);
   if (room.lastResult?.seriesWon) room.scores = {}; // a new series begins
+  const dice = { rng: (seed ^ DRAW_SALT) >>> 0 };
+  if (room.randomMap) {
+    const fits = MAPS.filter((m) => mapSeats(m) >= room.members.length);
+    room.mapId = drawMap(fits, dice, room.mapId).id;
+  }
+  if (room.teams && room.randomTeams) drawTeams(room, dice);
   const players = lineUp(room).map((m) => ({ id: m.id, color: m.color, ...(room.teams && { team: m.team }) }));
   const timeLimitTicks = room.timeLimit > 0 ? minutesToTicks(room.timeLimit) : null;
-  if (room.randomMap) {
-    const fits = MAPS.filter((m) => mapSeats(m) >= players.length);
-    room.mapId = drawMap(fits, { rng: (seed ^ MAP_DRAW_SALT) >>> 0 }, room.mapId).id;
-  }
   room.game = createGame({
     map: getMap(room.mapId),
     players,
@@ -436,6 +501,8 @@ export function handleClientMessage(room: RoomState, id: string, msg: ClientMsg,
       return setTeams(room, id, msg.on === true);
     case "friendlyFire":
       return setFriendlyFire(room, id, msg.on === true);
+    case "randomTeams":
+      return setRandomTeams(room, id, msg.on === true);
     case "team":
       return setTeam(room, id, msg.team, typeof msg.id === "string" ? msg.id : id);
     case "bestOf":
@@ -500,11 +567,14 @@ export function stepRoom(room: RoomState): boolean {
       const won = winners(game);
       const scorers = won.flatMap((p) => member(room, p.id) ?? []);
       for (const m of scorers) room.scores[m.id] = (room.scores[m.id] ?? 0) + 1;
-      const seriesWon = room.bestOf > 1 && scorers.some((m) => room.scores[m.id] >= Math.ceil(room.bestOf / 2));
+      const champions = room.bestOf > 1 ? scorers.filter((m) => room.scores[m.id] >= Math.ceil(room.bestOf / 2)) : [];
+      const seriesWon = champions.length > 0;
+      // a series goes to whoever got the wins: with sides that change, not always the whole side of its last match
+      const named = seriesWon ? champions : scorers;
       room.lastResult = {
-        winnerName: scorers.length > 0 ? listNames(scorers.map((m) => m.name)) : null,
-        winnerColor: scorers[0]?.color ?? null,
-        winnerTeam: won[0]?.team ?? null,
+        winnerName: named.length > 0 ? listNames(named.map((m) => m.name)) : null,
+        winnerColor: named[0]?.color ?? null,
+        winnerTeam: named.length === scorers.length ? (won[0]?.team ?? null) : null,
         seriesWon,
       };
       room.resultsTicksLeft = RESULTS_TICKS;
@@ -538,6 +608,7 @@ export function roomView(room: RoomState): RoomView {
     revenge: room.revenge,
     teams: room.teams,
     friendlyFire: room.friendlyFire,
+    randomTeams: room.randomTeams,
     bestOf: room.bestOf,
     timeLimit: room.timeLimit,
     round: room.round,

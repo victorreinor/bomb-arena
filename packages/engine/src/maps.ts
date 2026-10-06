@@ -1,4 +1,4 @@
-import { pickRandom } from "./rng";
+import { pickFresh } from "./rng";
 import type { MapDef } from "./types";
 
 export const GRID_W = 15;
@@ -205,6 +205,5 @@ export const RANDOM_MAP = "random";
 
 /** One of `maps`, drawn with `dice`: not `last` (the one just played) while there is another to draw. */
 export function drawMap(maps: readonly MapDef[], dice: { rng: number }, last: string | null = null): MapDef {
-  const fresh = maps.filter((m) => m.id !== last);
-  return pickRandom(dice, fresh.length > 0 ? fresh : maps);
+  return pickFresh(dice, maps, (m) => m.id === last);
 }

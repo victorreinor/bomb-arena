@@ -226,20 +226,26 @@ for (const g of deltaStates) {
 }
 check("protocol 2: every snapshot rebuilds on the one before", rebuildOk && rebuilt!.players.every((p) => typeof p.x === "number" && p.id !== undefined));
 
-// a room created for teams: newcomers fill the sides evenly, a match is side against side, and with the map
-// left to chance the server draws a real one
+// a room created for teams: newcomers fill the sides evenly, a match takes three, and with the sides and the
+// map left to chance the server draws them: two against one, on a real map
 const tHost = new Client("Tina");
-await tHost.connect(randomRoomCode(), true, 4, true);
+await tHost.connect(randomRoomCode(), true, 2, true);
 await until("team room", () => tHost.room !== null);
-check("room created with teams=1 plays in teams", tHost.room!.teams === true && tHost.room!.members[0].team === 0);
+check("room created with teams=1 plays in teams, with three seats at least", tHost.room!.teams === true && tHost.room!.members[0].team === 0 && tHost.room!.capacity === 3);
 tHost.send({ t: "addBot" });
 await until("team bot", () => tHost.room!.members.length === 2);
 check("the next one in goes to the other side", tHost.room!.members[1].team === 1);
+// messages are handled in order: had the match started, the room would have turned the bot away
+tHost.send({ t: "start" });
+tHost.send({ t: "addBot" });
+tHost.send({ t: "randomTeams", on: true });
 tHost.send({ t: "map", mapId: RANDOM_MAP });
-await until("random map", () => tHost.room!.randomMap === true);
+await until("third, drawn sides, random map", () => tHost.room!.members.length === 3 && tHost.room!.randomTeams === true && tHost.room!.randomMap === true);
+check("two can't play in teams", tHost.lastState === null && tHost.room!.phase === "lobby");
 tHost.send({ t: "start" });
 await until("team match", () => tHost.lastState !== null);
-check("the match has each player on their side", tHost.lastState!.game.players.map((p) => p.team).join() === "0,1");
+const drawn = tHost.lastState!.game.players.map((p) => p.team);
+check(`the sides are drawn two against one (${drawn.join()})`, drawn.join() === "0,0,1");
 check(`a map is drawn for the match (${tHost.lastState!.game.mapId})`, isMapId(tHost.lastState!.game.mapId) && tHost.room!.mapId === tHost.lastState!.game.mapId);
 tHost.send({ t: "leave" });
 

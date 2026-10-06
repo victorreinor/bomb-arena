@@ -14,6 +14,7 @@ import {
   roomView,
   sameTeam,
   setReady,
+  startBlocker,
   step,
   winners,
   type GameState,
@@ -221,16 +222,38 @@ describe("teams in a room", () => {
     expect(teamsOf(room)).toEqual({ u1: 0, u2: 1, "bot-1": 1 });
   });
 
-  test("a match needs someone on each side", () => {
+  test("a team match takes three players, bots included: one against one is everyone for themselves", () => {
     const room = teamLobby(["Ana", "Bia"]);
-    send(room, "u2", { t: "team", team: 0 });
+    expect(startBlocker(roomView(room))).toBe("teamPlayers");
+    expect(send(room, "u1", { t: "start" })).toBe(false);
+    send(room, "u1", { t: "addBot" });
+    expect(startBlocker(roomView(room))).toBeNull();
+    expect(send(room, "u1", { t: "start" })).toBe(true);
+  });
+
+  test("a team room seats three at least: asked for two, it gets three, and can't be cut back to two", () => {
+    expect(createRoom("BCDFG", 2, true).capacity).toBe(3);
+    const room = createRoom("BCDFG", 2);
+    joinRoom(room, "u1", "Ana");
+    expect(send(room, "u1", { t: "teams", on: true })).toBe(true);
+    expect(room.capacity).toBe(3);
+    expect(send(room, "u1", { t: "capacity", capacity: 2 })).toBe(false);
+    send(room, "u1", { t: "teams", on: false });
+    expect(send(room, "u1", { t: "capacity", capacity: 2 })).toBe(true);
+  });
+
+  test("a match needs someone on each side; three against one is up to them", () => {
+    const room = teamLobby(["Ana", "Bia", "Caio", "Duda"]);
+    for (const id of ["u2", "u4"]) send(room, id, { t: "team", team: 0 });
+    expect(teamsOf(room)).toEqual({ u1: 0, u2: 0, u3: 0, u4: 0 });
     expect(oneSided(roomView(room))).toBe(true);
     expect(canStart(roomView(room))).toBe(false);
     expect(send(room, "u1", { t: "start" })).toBe(false);
-    send(room, "u2", { t: "team", team: 1 });
+    send(room, "u4", { t: "team", team: 1 });
     expect(oneSided(roomView(room))).toBe(false);
     expect(send(room, "u1", { t: "start" })).toBe(true);
-    expect(send(room, "u2", { t: "team", team: 0 })).toBe(false); // not in the middle of a match
+    expect(room.game!.players.map((p) => p.team)).toEqual([0, 0, 0, 1]);
+    expect(send(room, "u2", { t: "team", team: 1 })).toBe(false); // not in the middle of a match
   });
 
   test("with teams off, sides don't matter: the match is everyone for themselves", () => {
@@ -264,7 +287,7 @@ describe("teams in a room", () => {
   });
 
   test("friendly fire is the host's to turn off, and reaches the match", () => {
-    const room = teamLobby(["Ana", "Bia"]);
+    const room = teamLobby(["Ana", "Bia", "Caio"]);
     expect(send(room, "u2", { t: "friendlyFire", on: false })).toBe(false);
     expect(send(room, "u1", { t: "friendlyFire", on: false })).toBe(true);
     expect(roomView(room).friendlyFire).toBe(false);
@@ -282,7 +305,7 @@ describe("teams in a room", () => {
   });
 
   test("a series is the team's: won as soon as its players have the wins it takes", () => {
-    const room = teamLobby(["Ana", "Bia"]);
+    const room = teamLobby(["Ana", "Bia", "Caio"]);
     send(room, "u1", { t: "bestOf", n: 3 });
     for (let round = 0; round < 2; round++) {
       for (const m of room.members) setReady(room, m.id, true);
@@ -294,13 +317,69 @@ describe("teams in a room", () => {
   });
 
   test("switching between teams and everyone for themselves starts the score over", () => {
-    const room = teamLobby(["Ana", "Bia"]);
+    const room = teamLobby(["Ana", "Bia", "Caio"]);
     send(room, "u1", { t: "start" });
     finishMatch(room, "u1");
     backToLobby(room);
     expect(roomView(room).members[0].score).toBe(1);
     send(room, "u1", { t: "teams", on: false });
     expect(roomView(room).members[0].score).toBe(0);
+  });
+
+  test("sides drawn: the host's option, off at first; nobody picks a side then, and the lobby's sides don't hold a match up", () => {
+    const room = teamLobby(["Ana", "Bia", "Caio"]);
+    expect(roomView(room).randomTeams).toBe(false);
+    expect(send(room, "u2", { t: "randomTeams", on: true })).toBe(false); // not the host
+    send(room, "u2", { t: "team", team: 0 });
+    expect(oneSided(roomView(room))).toBe(true);
+    expect(send(room, "u1", { t: "randomTeams", on: true })).toBe(true);
+    expect(roomView(room).randomTeams).toBe(true);
+    expect(send(room, "u2", { t: "team", team: 1 })).toBe(false);
+    expect(send(room, "u1", { t: "team", team: 1, id: "u3" })).toBe(false);
+    expect(oneSided(roomView(room))).toBe(false);
+    expect(send(room, "u1", { t: "start" })).toBe(true);
+  });
+
+  /** Plays `matches` matches in a lobby that draws its sides, and gives each one's sides: the ids on each, sorted. */
+  function drawnSides(room: RoomState, matches: number): string[][][] {
+    send(room, "u1", { t: "randomTeams", on: true });
+    const drawn: string[][][] = [];
+    for (let i = 0; i < matches; i++) {
+      for (const m of room.members) setReady(room, m.id, true);
+      expect(send(room, "u1", { t: "start" })).toBe(true);
+      const side = (team: number) => room.game!.players.filter((p) => p.team === team).map((p) => p.id).sort();
+      drawn.push([side(0), side(1)]);
+      finishMatch(room, "u1");
+      backToLobby(room);
+    }
+    return drawn;
+  }
+  const partnerOf = (id: string, sides: string[][]) => sides.find((side) => side.includes(id))!.find((o) => o !== id);
+
+  test("drawn sides with four: two against two, and in three matches everyone has been everyone's partner", () => {
+    const room = teamLobby(["Ana", "Bia"]);
+    send(room, "u1", { t: "addBot" });
+    send(room, "u1", { t: "addBot" });
+    const drawn = drawnSides(room, 3);
+    for (const sides of drawn) expect(sides.map((side) => side.length)).toEqual([2, 2]);
+    expect(drawn.map((sides) => partnerOf("u1", sides)).sort()).toEqual(["bot-1", "bot-2", "u2"]);
+  });
+
+  test("drawn sides with three: two against one, each has a turn alone, then a new round that doesn't repeat the last", () => {
+    const room = teamLobby(["Ana", "Bia", "Caio"]);
+    const drawn = drawnSides(room, 4);
+    for (const sides of drawn) expect(sides.map((side) => side.length)).toEqual([2, 1]);
+    const alone = drawn.map((sides) => sides[1][0]);
+    expect(alone.slice(0, 3).sort()).toEqual(["u1", "u2", "u3"]);
+    expect(alone[3]).not.toBe(alone[2]);
+  });
+
+  test("drawn sides: the series is won by whoever gets the wins first, not by the side of its last match", () => {
+    const room = teamLobby(["Ana", "Bia", "Caio"]);
+    send(room, "u1", { t: "bestOf", n: 3 });
+    drawnSides(room, 2); // Ana stands at the end of both: she won both, with a different partner or alone
+    const result = roomView(room).lastResult!;
+    expect(result).toMatchObject({ winnerName: "Ana", winnerColor: 0, winnerTeam: null, seriesWon: true });
   });
 
   test("without teams the result names no team", () => {
