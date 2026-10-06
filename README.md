@@ -51,7 +51,7 @@ A inspiração são os Super Bomberman 1 a 4, mas tudo aqui é original: cada pi
   <img src=".github/readme/items.png" alt="Os 17 itens do jogo">
 
 - **4 pets para montar:** ema, sapo, tatu e jumento, cada um com um poder (disparar, pular 2 casas, empurrar tijolo, chutar forte). E eles aguentam uma explosão no seu lugar.
-- **Bots** em três níveis: Fácil, Normal e Difícil (esse não perdoa).
+- **Bots** em três níveis, Fácil, Normal e Difícil: quanto mais fácil, menos bombas eles põem no tabuleiro e menos vêm atrás de você. Todos erram, como gente.
 - **No celular também:** em pé ou deitado, com controles na tela, vibração e instalação na tela inicial (PWA). Controle de videogame funciona.
 - **Trilha sintetizada:** música de lobby, música de batalha e efeitos, tudo gerado na hora com Web Audio.
 
@@ -104,7 +104,7 @@ Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (como funciona), [docs/
 |---|---|---|
 | Mover | WASD ou setas | direcional ou analógico |
 | Bomba | Espaço ou Enter | A |
-| Ação (soco, luva, detonar a remota) | Shift | B |
+| Ação (soco, luva, chute na bomba sob os pés, detonar a remota) | Shift | B |
 | Poder do pet | E ou / | Y |
 
 No celular aparecem botões na tela. M liga e desliga a música, N os efeitos sonoros, e o ⚙️ tem volume, vibração e "reduzir movimento".
