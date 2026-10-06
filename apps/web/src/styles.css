@@ -50,6 +50,8 @@ body {
 }
 .hud-player.dead { opacity: 0.4; text-decoration: line-through; }
 .hud-player.me { box-shadow: inset 0 0 0 2px var(--accent); }
+/* in a team match each card carries its team's colour down the left edge */
+.hud-player.teamed { border-left: 4px solid var(--team); }
 .hud-name { display: inline-flex; align-items: center; gap: 8px; }
 .hud-chip { flex: none; width: 14px; height: 14px; border-radius: 3px; border: 2px solid #0007; }
 
@@ -119,6 +121,13 @@ button.link { background: none; color: var(--muted); text-decoration: underline;
 .members { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .members li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #14141f; border-radius: 6px; font-size: 14px; }
 .members li.offline { opacity: 0.45; }
+/* a room in teams lists each side under its own heading, in the team's colour */
+.team + .team { margin-top: 10px; }
+.team-title { margin: 0 0 6px; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: var(--team); }
+.team .members li { border-left: 4px solid var(--team); }
+.members li.team-empty { color: var(--muted); font-size: 12px; font-style: italic; border-left-style: dashed; }
+/* on a narrow screen a row holds a lot (level, score, team, remove, state): closer together, so the name keeps its line */
+@media (max-width: 560px) { .members li { gap: 6px; padding: 8px; } }
 .member-name { flex: 1; }
 .member-state { font-size: 12px; color: var(--muted); }
 .swatches { display: flex; gap: 10px; }
@@ -282,6 +291,8 @@ button.tag { padding: 2px 8px !important; border: 1px dashed #4a4a66; }
 .setting .segmented button { padding: 7px 4px; font-size: 13px; }
 .setting-value { margin: 0; font-size: 14px; }
 .setting-hint { grid-column: 2; margin: 0; font-size: 11px; color: var(--muted); }
+/* the mode and friendly fire sit in the players' card, over the list they shape */
+.team-settings { margin: 0 0 12px; }
 
 /* map carousel */
 .map-carousel { display: flex; flex-direction: column; align-items: center; gap: 6px; outline: none; }
@@ -298,6 +309,16 @@ button.tag { padding: 2px 8px !important; border: 1px dashed #4a4a66; }
 .map-dots { display: flex; gap: 8px; }
 .map-dots button { width: 12px; height: 12px; padding: 0; border-radius: 6px; background: #34344d !important; transition: width 0.25s ease, background-color 0.25s ease, transform 0.12s ease; }
 .map-dots button.selected { width: 26px; background: var(--accent) !important; }
+/* the dot for "a map drawn at random" stands apart from the maps' */
+.map-dots button.random { margin-left: 6px; border-radius: 2px; transform: rotate(45deg); }
+.map-dots button.random.selected { width: 12px; }
+/* in place of a preview when the map is left to chance (as specific as the preview's own rule, to stay a flex box) */
+.map-slide .map-random {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 96px; font-weight: bold; line-height: 1; color: var(--accent); text-shadow: 0 6px 0 #7a4a00;
+  background: repeating-conic-gradient(#26263a 0% 25%, #1e1e30 0% 50%) 50% / 13.33% 15.38%;
+  border: 3px solid #34344d;
+}
 
 @media (max-width: 820px) {
   .lobby { padding-top: 64px; }

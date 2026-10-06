@@ -8,6 +8,7 @@ import {
   fallOrder,
   isPortal,
   liveVents,
+  winners,
   type AbilityKind,
   type Bomb,
   type Dir,
@@ -58,7 +59,8 @@ export type GameEvent =
   | { type: "cratePush"; x: number; y: number; dir: Dir }
   /** the lava vents erupted */
   | { type: "eruption"; cells: { x: number; y: number }[] }
-  | { type: "finish"; winner: string | null };
+  /** `winners`: everyone on the winning side (one, when it's everyone for themselves; none on a draw) */
+  | { type: "finish"; winners: string[] };
 
 /** Whether something happened to us: `me` is our player id; without one the device is shared, so everything counts. */
 export const isMine = (id: string | null, me: string | undefined) => me === undefined || id === me;
@@ -111,7 +113,7 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
   for (const u of prev.powerUps) {
     if (next.powerUps.some((o) => o.x === u.x && o.y === u.y && o.kind === u.kind)) continue;
     if (next.flames.some((f) => f.x === u.x && f.y === u.y) || next.tiles[u.y * next.width + u.x] === TILE.HARD) continue;
-    const taker = next.players.find((p) => p.alive && Math.floor(p.x) === u.x && Math.floor(p.y) === u.y);
+    const taker = standingOn(u.x, u.y);
     if (!taker) continue;
     takers.add(taker.id);
     if (u.kind !== "skull") events.push({ type: "pickup", id: taker.id, x: taker.x, y: taker.y, kind: u.kind });
@@ -209,6 +211,6 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
     if (cells.length > 0) events.push({ type: "blockFall", cells });
   }
 
-  if (prev.phase === "playing" && next.phase === "finished") events.push({ type: "finish", winner: next.winner });
+  if (prev.phase === "playing" && next.phase === "finished") events.push({ type: "finish", winners: winners(next).map((p) => p.id) });
   return events;
 }

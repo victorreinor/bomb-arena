@@ -40,6 +40,12 @@ export interface Option<V> {
   disabled?: boolean;
 }
 
+/** A room's two modes (the value is whether it plays in teams), for the home screen and the lobby. */
+export const MODE_OPTIONS: Option<boolean>[] = [
+  { value: false, label: "Cada um por si" },
+  { value: true, label: "Em times" },
+];
+
 export function OptionPicker<V extends string | number | boolean>({ label, value, options, onChange }: {
   label: string;
   value: V;

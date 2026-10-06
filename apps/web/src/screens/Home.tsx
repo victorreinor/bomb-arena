@@ -3,12 +3,13 @@ import { MAX_MEMBERS, isValidRoomCode, normalizeRoomCode, type BotLevel } from "
 import { savedName, saveName } from "../config";
 import { audio } from "../game/audio";
 import { BOT_LEVEL_OPTIONS } from "../game/botLevels";
-import { CapacityPicker, NameField } from "./fields";
+import { CapacityPicker, MODE_OPTIONS, NameField, OptionPicker } from "./fields";
 
 interface Props {
   initialCode: string;
   error: string | null;
-  onCreate: (name: string, capacity: number) => void;
+  /** `teams`: the room starts out set for team matches (two sides) rather than everyone for themselves */
+  onCreate: (name: string, capacity: number, teams: boolean) => void;
   onJoin: (name: string, code: string) => void;
   /** offline play: bots of that level against you, or null for two people on one keyboard */
   onLocal: (bots: BotLevel | null) => void;
@@ -19,6 +20,7 @@ export function Home({ initialCode, error, onCreate, onJoin, onLocal }: Props) {
   useEffect(() => audio.playMusic("menu"), []);
   const [code, setCode] = useState(initialCode);
   const [capacity, setCapacity] = useState(MAX_MEMBERS);
+  const [teams, setTeams] = useState(false);
   const cleanCode = normalizeRoomCode(code);
   const codeOk = isValidRoomCode(cleanCode);
   const nameOk = name.trim().length > 0;
@@ -67,8 +69,12 @@ export function Home({ initialCode, error, onCreate, onJoin, onLocal }: Props) {
           <span>Jogadores na sala</span>
           <CapacityPicker label="Jogadores na sala" value={capacity} onChange={setCapacity} />
         </div>
+        <div className="field">
+          <span>Modo</span>
+          <OptionPicker label="Modo" value={teams} options={MODE_OPTIONS} onChange={setTeams} />
+        </div>
 
-        <button className="primary" disabled={!nameOk} onClick={() => submit(() => onCreate(name.trim(), capacity))}>
+        <button className="primary" disabled={!nameOk} onClick={() => submit(() => onCreate(name.trim(), capacity, teams))}>
           Criar sala
         </button>
 

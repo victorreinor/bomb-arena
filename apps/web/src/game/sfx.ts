@@ -87,7 +87,7 @@ export function playSounds(events: GameEvent[], me?: string) {
         break;
       case "finish":
         // let the last blast and death ring out before the jingle
-        audio.sfx(e.winner === null ? "draw" : isMine(e.winner, me) ? "win" : "lose", 1.1);
+        audio.sfx(e.winners.length === 0 ? "draw" : e.winners.some((id) => isMine(id, me)) ? "win" : "lose", 1.1);
         break;
     }
   }

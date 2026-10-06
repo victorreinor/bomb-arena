@@ -18,6 +18,7 @@ import { MatchTimer, showsScore } from "../game/MatchTimer";
 import { playSounds } from "../game/sfx";
 import type { SnapshotBuffer } from "../game/snapshots";
 import { loadSprites, type Sprites, type TileTheme } from "../game/sprites";
+import { TEAM_NAMES, startTags, victorLabel } from "../game/teams";
 
 interface Props {
   room: RoomView;
@@ -70,7 +71,8 @@ export function OnlineGame({ room, me, buffer, send, ping, onLeave }: Props) {
     // our own bomber runs ahead of the snapshots (see predict.ts); everything else plays back from them
     const predictor = new Predictor(me);
     const predicted = new PredictedView(me);
-    const tags = playing ? { [me]: "VOCÊ" } : {};
+    // who to point out as the match starts: known from its first snapshot (the teams are in it)
+    let tags: Record<string, string> | null = null;
 
     /** Sends what the controls say when it's news, or (until an input is acknowledged) every so often. */
     const pushInput = (now: number) => {
@@ -110,6 +112,7 @@ export function OnlineGame({ room, me, buffer, send, ping, onLeave }: Props) {
         for (const snap of buffer.takePlayed()) {
           if (prevEvent && snap.tick <= prevEvent.tick) {
             prevEvent = null; // a new round started
+            tags = null;
             effects.clear();
             predictor.reset();
           }
@@ -124,6 +127,7 @@ export function OnlineGame({ room, me, buffer, send, ping, onLeave }: Props) {
           canvas.height = size.height;
           sized = true;
         }
+        tags ??= playing ? startTags(sample.latest, me) : {};
         render(ctx, shown.view, sprites, now, effects, tags);
         // snapshots arrive at 30 Hz but frames at 60: only look at the HUD when there is something new
         if (sample.latest !== lastLatest || buffer.resultsIn !== lastResultsIn) {
@@ -187,9 +191,9 @@ export function OnlineGame({ room, me, buffer, send, ping, onLeave }: Props) {
       overlay={
         finished && (
           <div className="overlay podium-overlay">
-            <h2>{winner ? `${nameOf(winner.id)} venceu!` : "Empate!"}</h2>
+            <h2>{winner ? `${winner.team !== null ? TEAM_NAMES[winner.team] : nameOf(winner.id)} venceu!` : "Empate!"}</h2>
             <Podium game={finished} nameOf={nameOf} />
-            {room.lastResult?.seriesWon && <p className="champion-banner">🏆 {room.lastResult.winnerName} venceu a série!</p>}
+            {room.lastResult?.seriesWon && <p className="champion-banner">🏆 {victorLabel(room.lastResult)} venceu a série!</p>}
             {showsScore(room) && <p>Placar: {room.members.map((m) => `${m.name} ${m.score}`).join(" · ")}</p>}
             {secondsLeft !== null && <p>Voltando ao lobby em {secondsLeft}s…</p>}
           </div>

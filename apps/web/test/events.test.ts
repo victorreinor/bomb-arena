@@ -79,6 +79,29 @@ describe("diffGame: who struck a bomb", () => {
   });
 });
 
+describe("diffGame: the end of a match", () => {
+  /** Three in a corridor, the others out and only `standing` left: what the match's last step says. */
+  const finish = (teams: number[] | undefined, standing: string) => {
+    const s = makeGame(corridor("1...2...3"), 3, 1, { teams });
+    for (const p of s.players) if (p.id !== standing) p.alive = false;
+    const before = structuredClone(s);
+    step(s);
+    return diffGame(before, s).filter((e) => e.type === "finish");
+  };
+
+  test("everyone for themselves: the one left standing won", () => {
+    expect(finish(undefined, "p2")).toEqual([{ type: "finish", winners: ["p2"] }]);
+  });
+
+  test("in teams the whole side won, the fallen too", () => {
+    expect(finish([0, 1, 0], "p3")).toEqual([{ type: "finish", winners: ["p1", "p3"] }]);
+  });
+
+  test("nobody left is a draw: no winners", () => {
+    expect(finish([0, 1, 0], "nobody")).toEqual([{ type: "finish", winners: [] }]);
+  });
+});
+
 describe("diffGame: new bombs", () => {
   test("a rubber bomb bouncing off a wall makes a bounce, heading back", () => {
     const s = makeGame(corridor("1...#.2"));

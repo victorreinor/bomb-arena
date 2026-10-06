@@ -23,6 +23,7 @@ import { drawFlames } from "./fire";
 import { ITEM_COL } from "./items";
 import { mapInfo } from "./mapInfo";
 import { ANCHOR, BOMB_LOOKS, TILE_PX, bombLook, drawBomber, drawFloor, drawFloorCell, drawMount, drawTile, tileName, type BomberFrame, type Sprites } from "./sprites";
+import { TEAM_CSS } from "./teams";
 
 export const SCALE = 3;
 
@@ -139,8 +140,8 @@ function boardImage(state: GameState, sprites: Sprites): HTMLCanvasElement {
 
 /**
  * Draws one frame. `state` is what to show (already interpolated by the caller, see lerpState). `tags` names
- * the bombers played on this screen ("VOCÊ", or J1/J2 when two share it): they are pointed out at the
- * start, and only their buried mines are drawn.
+ * the bombers played on this screen ("VOCÊ", or J1/J2 when two share it) and their team-mates ("ALIADO"):
+ * they are pointed out at the start, and only their buried mines are drawn.
  */
 export function render(
   ctx: CanvasRenderingContext2D,
@@ -259,6 +260,17 @@ export function render(
       ctx.ellipse(p.x * TILE_PX, p.y * TILE_PX + 5, 6 - z * 0.15, 2.4, 0, 0, Math.PI * 2);
       ctx.fill();
     }
+    if (p.team !== null) {
+      // in a team match, a ring in the team's colour round the feet, over a wider dark one so it shows on any floor
+      ctx.beginPath();
+      ctx.ellipse(p.x * TILE_PX, p.y * TILE_PX + 5, TEAM_RING.rx, TEAM_RING.ry, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(0,0,0,0.6)";
+      ctx.lineWidth = TEAM_RING.edge;
+      ctx.stroke();
+      ctx.strokeStyle = TEAM_CSS[p.team];
+      ctx.lineWidth = TEAM_RING.line;
+      ctx.stroke();
+    }
     ctx.save();
     if (p.invuln > 0 && Math.floor(timeMs / 70) % 2 === 0) ctx.globalAlpha = 0.35;
     // a rider sits between its mount's body and its head
@@ -338,6 +350,9 @@ export function render(
   ctx.restore();
   drawCountdown(ctx, state, timeMs);
 }
+
+/** The ring round a bomber's feet in a team match: its radii and the widths of its line and of the dark edge under it, in sprite pixels. */
+const TEAM_RING = { rx: 6.5, ry: 2.8, line: 1.4, edge: 2.8 };
 
 /** A tag's height and the gap to the bomber its arrow points at, in sprite pixels. */
 const TAG_H = 9;

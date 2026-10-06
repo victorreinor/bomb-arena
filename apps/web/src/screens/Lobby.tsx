@@ -2,17 +2,19 @@ import { useEffect, useState } from "react";
 import {
   BEST_OF_OPTIONS,
   DEFAULT_BOT_LEVEL,
-  MIN_MEMBERS,
   PLAYER_COLORS,
+  RANDOM_MAP,
+  TEAM_COUNT,
   TIME_LIMIT_OPTIONS,
   canStart,
   getMap,
   mapSeats,
-  tooManyForMap,
+  startBlocker,
   type BotLevel,
   type ClientMsg,
   type MemberView,
   type RoomView,
+  type StartBlocker,
 } from "@bomb-arena/engine";
 import { audio } from "../game/audio";
 import { BOT_LEVEL_NAMES, BOT_LEVEL_OPTIONS, nextBotLevel } from "../game/botLevels";
@@ -21,7 +23,8 @@ import { ITEM_INFO, PET_INFO } from "../game/items";
 import { COLOR_CSS, COLOR_NAMES } from "../game/colors";
 import { PingBadge } from "../game/PingBadge";
 import { bestOfLabel, showsScore, timeLimitLabel } from "../game/MatchTimer";
-import { HostSetting, OptionPicker, capacityOptions } from "./fields";
+import { TEAM_NAMES, teamStyle, victorLabel } from "../game/teams";
+import { HostSetting, MODE_OPTIONS, OptionPicker, capacityOptions } from "./fields";
 import { MapPicker } from "./MapPicker";
 
 interface Props {
@@ -56,12 +59,70 @@ export function Lobby({ room, me, reconnecting, send, ping, onLeave }: Props) {
 
   const result = room.lastResult;
   const showScore = showsScore(room);
+  const victor = result && victorLabel(result);
 
-  /** What the host's start button says: why it can't start yet, or that it can. */
-  const startLabel = () => {
-    if (connected.length < MIN_MEMBERS) return `Aguardando jogadores (${connected.length}/${room.capacity})…`;
-    if (tooManyForMap(room)) return `Esse mapa é para ${mapSeats(getMap(room.mapId))} jogadores`;
-    return startable ? "Iniciar partida" : "Aguardando todos ficarem prontos…";
+  /** What the host's start button says while something keeps the match from starting. */
+  const waitingFor: Record<StartBlocker, string> = {
+    players: `Aguardando jogadores (${connected.length}/${room.capacity})…`,
+    map: `Esse mapa é para ${mapSeats(getMap(room.mapId))} jogadores`,
+    sides: "Os dois times precisam de alguém",
+    ready: "Aguardando todos ficarem prontos…",
+  };
+  const blocker = startBlocker(room);
+
+  const memberRow = (m: MemberView) => {
+    const swap = m.id === me ? "Trocar de time" : `Passar ${m.name} para o outro time`;
+    return (
+      <li key={m.id} className={m.connected ? "" : "offline"}>
+        <span className="hud-chip" style={{ background: COLOR_CSS[m.color] }} />
+        <span className="member-name">
+          {m.bot && "🤖 "}
+          {m.name}
+          {m.id === me && " (você)"}
+          {m.id === room.hostId && " 👑"}
+        </span>
+        {m.bot &&
+          (isHost ? (
+            <button
+              className="ghost tag"
+              title="Trocar o nível"
+              onClick={() => send({ t: "botLevel", id: m.id, level: nextBotLevel(m.bot!) })}
+            >
+              {BOT_LEVEL_NAMES[m.bot]}
+            </button>
+          ) : (
+            <span className="tag">{BOT_LEVEL_NAMES[m.bot]}</span>
+          ))}
+        {showScore && (
+          <span className="member-score" title="Vitórias">
+            🏆 {m.score}
+          </span>
+        )}
+        {room.teams && (isHost || m.id === me) && (
+          <button
+            className="ghost tag"
+            title={swap}
+            aria-label={swap}
+            onClick={() => send({ t: "team", team: ((m.team ?? 0) + 1) % TEAM_COUNT, ...(m.id !== me && { id: m.id }) })}
+          >
+            ⇄
+          </button>
+        )}
+        {isHost && m.id !== me && (
+          <button
+            className="ghost remove-member"
+            onClick={() => send(m.bot ? { t: "removeBot", id: m.id } : { t: "kick", id: m.id })}
+            title={m.bot ? "Remover bot" : `Tirar ${m.name} da sala`}
+          >
+            ✕
+          </button>
+        )}
+        {/* keyed by the state, so a change replays its little pop */}
+        <span key={`${m.connected}-${m.ready}`} className={`member-state${m.connected && m.ready ? " is-ready" : ""}`}>
+          {!m.connected ? "desconectado" : m.ready ? "pronto" : "aguardando"}
+        </span>
+      </li>
+    );
   };
 
   return (
@@ -85,9 +146,9 @@ export function Lobby({ room, me, reconnecting, send, ping, onLeave }: Props) {
       </header>
       {reconnecting && <p className="notice">Reconectando…</p>}
       {result?.seriesWon ? (
-        <p className="notice champion">🏆 {result.winnerName} venceu a série! O placar recomeça na próxima partida.</p>
+        <p className="notice champion">🏆 {victor} venceu a série! O placar recomeça na próxima partida.</p>
       ) : (
-        result && <p className="notice">Última partida: {result.winnerName ? `${result.winnerName} venceu!` : "empate"}</p>
+        result && <p className="notice">Última partida: {victor ? `${victor} venceu!` : "empate"}</p>
       )}
 
       <div className="lobby-grid">
@@ -95,49 +156,44 @@ export function Lobby({ room, me, reconnecting, send, ping, onLeave }: Props) {
           <h2>
             Jogadores ({room.members.length}/{room.capacity})
           </h2>
-          <ul className="members">
-            {room.members.map((m) => (
-              <li key={m.id} className={m.connected ? "" : "offline"}>
-                <span className="hud-chip" style={{ background: COLOR_CSS[m.color] }} />
-                <span className="member-name">
-                  {m.bot && "🤖 "}
-                  {m.name}
-                  {m.id === me && " (você)"}
-                  {m.id === room.hostId && " 👑"}
-                </span>
-                {m.bot &&
-                  (isHost ? (
-                    <button
-                      className="ghost tag"
-                      title="Trocar o nível"
-                      onClick={() => send({ t: "botLevel", id: m.id, level: nextBotLevel(m.bot!) })}
-                    >
-                      {BOT_LEVEL_NAMES[m.bot]}
-                    </button>
-                  ) : (
-                    <span className="tag">{BOT_LEVEL_NAMES[m.bot]}</span>
-                  ))}
-                {showScore && (
-                  <span className="member-score" title="Vitórias">
-                    🏆 {m.score}
-                  </span>
-                )}
-                {isHost && m.id !== me && (
-                  <button
-                    className="ghost remove-member"
-                    onClick={() => send(m.bot ? { t: "removeBot", id: m.id } : { t: "kick", id: m.id })}
-                    title={m.bot ? "Remover bot" : `Tirar ${m.name} da sala`}
-                  >
-                    ✕
-                  </button>
-                )}
-                {/* keyed by the state, so a change replays its little pop */}
-                <span key={`${m.connected}-${m.ready}`} className={`member-state${m.connected && m.ready ? " is-ready" : ""}`}>
-                  {!m.connected ? "desconectado" : m.ready ? "pronto" : "aguardando"}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {/* how the room plays is settled next to who plays; a server from before teams says nothing about them */}
+          {room.teams !== undefined && (
+            <div className="settings team-settings">
+              <HostSetting title="Modo" editable={isHost} value={room.teams} options={MODE_OPTIONS} onChange={(on) => send({ t: "teams", on })} />
+              {room.teams && (
+                <HostSetting
+                  title="Fogo amigo"
+                  hint="Ligado, a explosão de um companheiro de time também te pega. A sua própria sempre pega."
+                  editable={isHost}
+                  value={room.friendlyFire ?? true}
+                  options={[
+                    { value: true, label: "Ligado" },
+                    { value: false, label: "Desligado" },
+                  ]}
+                  onChange={(on) => send({ t: "friendlyFire", on })}
+                />
+              )}
+            </div>
+          )}
+          {room.teams ? (
+            // one list per side: each picks their own with ⇄, and the host can move anyone
+            TEAM_NAMES.map((teamName, team) => {
+              const side = room.members.filter((m) => (m.team ?? 0) === team);
+              return (
+                <div key={team} className="team" style={teamStyle(team)}>
+                  <h3 className="team-title">
+                    {teamName} <span className="muted">({side.length})</span>
+                  </h3>
+                  <ul className="members">
+                    {side.map(memberRow)}
+                    {side.length === 0 && <li className="team-empty">ninguém ainda</li>}
+                  </ul>
+                </div>
+              );
+            })
+          ) : (
+            <ul className="members">{room.members.map(memberRow)}</ul>
+          )}
           {isHost && room.members.length < room.capacity && (
             <div className="add-bot-row">
               <button className="add-bot" onClick={() => send({ t: "addBot", level: newBotLevel })}>
@@ -202,7 +258,12 @@ export function Lobby({ room, me, reconnecting, send, ping, onLeave }: Props) {
 
         <section className="card">
           <h2>Mapa</h2>
-          <MapPicker selected={room.mapId} editable={isHost} onSelect={(mapId) => send({ t: "map", mapId })} />
+          <MapPicker
+            selected={room.randomMap ? RANDOM_MAP : room.mapId}
+            offerRandom={room.randomMap !== undefined}
+            editable={isHost}
+            onSelect={(mapId) => send({ t: "map", mapId })}
+          />
           <div className="settings">
             <HostSetting
               title="Série"
@@ -244,7 +305,7 @@ export function Lobby({ room, me, reconnecting, send, ping, onLeave }: Props) {
       <div className="lobby-start">
         {isHost ? (
           <button className="primary" disabled={!startable} onClick={() => send({ t: "start" })}>
-            {startLabel()}
+            {blocker ? waitingFor[blocker] : "Iniciar partida"}
           </button>
         ) : (
           <button className={self?.ready ? "" : "primary"} onClick={() => send({ t: "ready", ready: !self?.ready })}>

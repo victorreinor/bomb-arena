@@ -10,7 +10,7 @@ import { OnlineGame } from "./screens/OnlineGame";
 type Route =
   | { kind: "home" }
   | { kind: "local"; bots: BotLevel | null }
-  | { kind: "room"; code: string; name: string; create: boolean; capacity: number };
+  | { kind: "room"; code: string; name: string; create: boolean; capacity: number; teams: boolean };
 
 function setUrlCode(code: string | null) {
   const url = new URL(location.href);
@@ -19,15 +19,16 @@ function setUrlCode(code: string | null) {
   history.replaceState(null, "", url);
 }
 
-function RoomScreen({ code, name, create, capacity, onLeave, onFatal }: {
+function RoomScreen({ code, name, create, capacity, teams, onLeave, onFatal }: {
   code: string;
   name: string;
   create: boolean;
   capacity: number;
+  teams: boolean;
   onLeave: () => void;
   onFatal: (e: RoomError) => void;
 }) {
-  const { status, room, me, buffer, send, ping } = useRoom({ code, name, create, capacity, onFatal });
+  const { status, room, me, buffer, send, ping } = useRoom({ code, name, create, capacity, teams, onFatal });
   if (!room) return <div className="screen"><p className="notice">Conectando…</p></div>;
   // tell the room we're going (no reconnect grace), then close the connection by leaving the screen
   const leave = () => {
@@ -52,10 +53,10 @@ function Screens() {
   const [error, setError] = useState<string | null>(null);
   const [initialCode] = useState(() => new URLSearchParams(location.search).get("sala")?.toUpperCase() ?? "");
 
-  const enter = useCallback((name: string, code: string, create: boolean, capacity = MAX_MEMBERS) => {
+  const enter = useCallback((name: string, code: string, create: boolean, capacity = MAX_MEMBERS, teams = false) => {
     setError(null);
     setUrlCode(code);
-    setRoute({ kind: "room", code, name, create, capacity });
+    setRoute({ kind: "room", code, name, create, capacity, teams });
   }, []);
 
   const leave = useCallback(() => {
@@ -89,6 +90,7 @@ function Screens() {
         name={route.name}
         create={route.create}
         capacity={route.capacity}
+        teams={route.teams}
         onLeave={leave}
         onFatal={onFatal}
       />
@@ -98,7 +100,7 @@ function Screens() {
     <Home
       initialCode={initialCode}
       error={error}
-      onCreate={(name, capacity) => enter(name, randomRoomCode(), true, capacity)}
+      onCreate={(name, capacity, teams) => enter(name, randomRoomCode(), true, capacity, teams)}
       onJoin={(name, code) => enter(name, code, false)}
       onLocal={(bots) => setRoute({ kind: "local", bots })}
     />

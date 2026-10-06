@@ -3,6 +3,7 @@ import { ABILITY_FIELDS, type AbilityKind, type Player } from "@bomb-arena/engin
 import { COLOR_CSS } from "./colors";
 import { ItemIcon, PetIcon } from "./ItemIcon";
 import { DISEASE_NAME, PET_INFO } from "./items";
+import { TEAM_NAMES, teamStyle } from "./teams";
 
 const ABILITIES = Object.entries(ABILITY_FIELDS) as [AbilityKind, (typeof ABILITY_FIELDS)[AbilityKind]][];
 
@@ -39,10 +40,17 @@ export function PlayerStats({ p }: { p: Player }) {
   );
 }
 
-/** One player's card in the HUD: colour chip, label and stats; outlined if it's `me`, greyed out once eliminated. */
+/**
+ * One player's card in the HUD: colour chip, label and stats; outlined if it's `me`, greyed out once
+ * eliminated and, in a team match, edged with the team's colour.
+ */
 export function HudPlayer({ p, label, me = false }: { p: Player; label: ReactNode; me?: boolean }) {
   return (
-    <div className={`hud-player${p.alive ? "" : " dead"}${me ? " me" : ""}`}>
+    <div
+      className={`hud-player${p.alive ? "" : " dead"}${me ? " me" : ""}${p.team !== null ? " teamed" : ""}`}
+      style={p.team !== null ? teamStyle(p.team) : undefined}
+      title={p.team !== null ? TEAM_NAMES[p.team] : undefined}
+    >
       <span className="hud-name">
         <span className="hud-chip" style={{ background: COLOR_CSS[p.color] }} />
         <span className="hud-label">{label}</span>

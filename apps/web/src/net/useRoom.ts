@@ -20,8 +20,16 @@ const PING_EVERY_MS = 2000;
 /** the shown ping is the median of this many recent round trips, so one slow packet doesn't flash red */
 const PING_SAMPLES = 5;
 
-export function useRoom(opts: { code: string; name: string; create: boolean; capacity: number; onFatal: (e: RoomError) => void }) {
-  const { code, name, create, capacity, onFatal } = opts;
+export function useRoom(opts: {
+  code: string;
+  name: string;
+  create: boolean;
+  capacity: number;
+  /** a room created for team matches (the host can still change it in the lobby) */
+  teams: boolean;
+  onFatal: (e: RoomError) => void;
+}) {
+  const { code, name, create, capacity, teams, onFatal } = opts;
   const [status, setStatus] = useState<ConnStatus>("connecting");
   const [room, setRoom] = useState<RoomView | null>(null);
   /** round trip to the server in ms; null until measured (or with a server that doesn't answer pings) */
@@ -54,6 +62,7 @@ export function useRoom(opts: { code: string; name: string; create: boolean; cap
       if (create && !joined) {
         params.set("create", "1");
         params.set("max", String(capacity));
+        if (teams) params.set("teams", "1");
       }
       const ws = new WebSocket(`${serverUrl()}/ws/${code}?${params}`);
       wsRef.current = ws;
@@ -107,7 +116,7 @@ export function useRoom(opts: { code: string; name: string; create: boolean; cap
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [code, name, create, capacity, me, buffer]);
+  }, [code, name, create, capacity, teams, me, buffer]);
 
   const send = useCallback((msg: ClientMsg) => sendOn(wsRef.current, msg), []);
 

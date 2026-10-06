@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { FLOOR, GRID_W, MAPS, MAX_MEMBERS, floorCode, getMap, mapSeats, wrap, type MapDef } from "@bomb-arena/engine";
+import { FLOOR, GRID_H, GRID_W, MAPS, MAX_MEMBERS, RANDOM_MAP, floorCode, getMap, mapSeats, wrap, type MapDef } from "@bomb-arena/engine";
 import { ACCENT_INK } from "../game/colors";
 import { mapInfo } from "../game/mapInfo";
 import { TILE_PX, TILE_THEMES, drawFloor, drawFloorCell, drawTile, floorSheetUrl, load, loaded, tileName, tileSheetUrl } from "../game/sprites";
@@ -72,17 +72,58 @@ export function MapPreview({ map }: { map: MapDef }) {
   );
 }
 
-/**
- * Map carousel: one big preview at a time. The host flips through with the arrows (or the dots,
- * or the keyboard arrows while it has focus); everyone else sees the map the host picked.
- */
-export function MapPicker({ selected, editable, onSelect }: { selected: string; editable: boolean; onSelect: (id: string) => void }) {
-  const map = getMap(selected);
-  const index = Math.max(0, MAPS.findIndex((m) => m.id === map.id));
+/** What the choice of a map drawn at random is called. */
+const RANDOM_NAME = "Aleatório";
+
+/** What stands in for a preview when the map is left to chance: a board-shaped card with a question mark. */
+function RandomPreview() {
+  return (
+    <div className="map-preview map-random" style={{ aspectRatio: `${GRID_W} / ${GRID_H}` }} role="img" aria-label="Mapa sorteado a cada partida">
+      ?
+    </div>
+  );
+}
+
+/** What the carousel says under a slide: the name, a tag, how many it seats, what it is like and a note in passing. */
+interface Slide {
+  name: string;
+  tag: string;
+  seats: number;
+  desc: string;
+  note: string;
+}
+
+function describe(map: MapDef): Slide {
   const info = mapInfo(map.id);
   const stats = mapStats(map);
-  const seats = mapSeats(map);
-  const go = (step: number) => onSelect(MAPS[wrap(index + step, MAPS.length)].id);
+  return { name: map.name, tag: info.level, seats: mapSeats(map), desc: info.desc, note: `Pilares: ${stats.pillars} · tijolos em ~${stats.bricks}% das casas livres.` };
+}
+
+const RANDOM_SLIDE: Slide = {
+  name: RANDOM_NAME,
+  tag: "Sorteio",
+  seats: MAX_MEMBERS,
+  desc: "Um mapa sorteado a cada partida, entre os que têm lugar para todos da sala.",
+  note: "Nunca o mesmo duas vezes seguidas.",
+};
+
+/**
+ * Map carousel: one big preview at a time. The host flips through with the arrows (or the dots,
+ * or the keyboard arrows while it has focus); everyone else sees the map the host picked. After the maps
+ * comes RANDOM_MAP, a map drawn for every match, where the server knows how (`offerRandom`).
+ */
+export function MapPicker({ selected, offerRandom, editable, onSelect }: {
+  selected: string;
+  offerRandom: boolean;
+  editable: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const choices = [...MAPS.map((m) => m.id), ...(offerRandom ? [RANDOM_MAP] : [])];
+  const index = Math.max(0, choices.indexOf(selected)); // an id nobody knows shows as the first map
+  const go = (step: number) => onSelect(choices[wrap(index + step, choices.length)]);
+  // what the slide shows: the map picked, or the card that stands for any of them
+  const map = choices[index] === RANDOM_MAP ? null : getMap(choices[index]);
+  const slide = map ? describe(map) : RANDOM_SLIDE;
 
   // every map's tiles, ready before anyone flips to it
   useEffect(() => TILE_THEMES.forEach((theme) => void load(tileSheetUrl(theme)).catch(() => {})), []);
@@ -91,7 +132,7 @@ export function MapPicker({ selected, editable, onSelect }: { selected: string; 
   const [shown, setShown] = useState({ index, turn: "next" as "next" | "prev" });
   let turn = shown.turn;
   if (shown.index !== index) {
-    turn = wrap(index - shown.index, MAPS.length) <= MAPS.length / 2 ? "next" : "prev";
+    turn = wrap(index - shown.index, choices.length) <= choices.length / 2 ? "next" : "prev";
     setShown({ index, turn });
   }
 
@@ -113,8 +154,8 @@ export function MapPicker({ selected, editable, onSelect }: { selected: string; 
             ◀
           </button>
         )}
-        <div key={map.id} className={`map-slide ${turn}`}>
-          <MapPreview map={map} />
+        <div key={choices[index]} className={`map-slide ${turn}`}>
+          {map ? <MapPreview map={map} /> : <RandomPreview />}
         </div>
         {editable && (
           <button type="button" className="map-arrow" onClick={() => go(1)} aria-label="Próximo mapa">
@@ -122,30 +163,33 @@ export function MapPicker({ selected, editable, onSelect }: { selected: string; 
           </button>
         )}
       </div>
-      <div key={map.id} className="map-text">
+      <div key={choices[index]} className="map-text">
         <div className="map-caption">
-          <b>{map.name}</b> <span className="tag">{info.level}</span>
-          {seats < MAX_MEMBERS && <span className="tag"> · só {seats} jogadores</span>}
+          <b>{slide.name}</b> <span className="tag">{slide.tag}</span>
+          {slide.seats < MAX_MEMBERS && <span className="tag"> · só {slide.seats} jogadores</span>}
           {!editable && <span className="muted"> · escolhido pelo anfitrião</span>}
         </div>
         <p className="map-info">
-          {info.desc} <span className="muted">Pilares: {stats.pillars} · tijolos em ~{stats.bricks}% das casas livres.</span>
+          {slide.desc} <span className="muted">{slide.note}</span>
         </p>
       </div>
       {editable && (
         <div className="map-dots" role="radiogroup" aria-label="Escolher mapa">
-          {MAPS.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              role="radio"
-              aria-checked={m.id === map.id}
-              aria-label={m.name}
-              title={m.name}
-              className={m.id === map.id ? "selected" : ""}
-              onClick={() => onSelect(m.id)}
-            />
-          ))}
+          {choices.map((id, i) => {
+            const name = id === RANDOM_MAP ? RANDOM_NAME : getMap(id).name;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={i === index}
+                aria-label={name}
+                title={name}
+                className={`${i === index ? "selected" : ""}${id === RANDOM_MAP ? " random" : ""}`}
+                onClick={() => onSelect(id)}
+              />
+            );
+          })}
         </div>
       )}
     </div>

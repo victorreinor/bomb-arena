@@ -10,6 +10,7 @@ export function hudKey(game: GameState, resultsIn = -1): string {
   const players = game.players.map((p) =>
     [
       p.id,
+      p.team,
       p.alive,
       !!p.ghost,
       p.color,
