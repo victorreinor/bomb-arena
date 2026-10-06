@@ -49,6 +49,36 @@ describe("diffGame: items", () => {
   });
 });
 
+describe("diffGame: who struck a bomb", () => {
+  const poses = (before: GameState, after: GameState) => diffGame(before, after).flatMap((e) => (e.type === "pose" ? [`${e.id} ${e.pose}`] : []));
+
+  // it looked a tile behind where the bomb had already slid to, and found nobody
+  test("walking into a bomb with the boots strikes the kick pose", () => {
+    const s = makeGame(corridor("1.....2"));
+    s.players[0].kick = true;
+    testBomb(s, 3, 1, { owner: "p2" });
+    const seen: string[] = [];
+    for (let t = 0; t < 15; t++) {
+      const before = structuredClone(s);
+      step(s, { p1: { dx: 1 } });
+      seen.push(...poses(before, s));
+    }
+    expect(seen).toEqual(["p1 kick"]);
+  });
+
+  test.each([
+    ["kick", "kick"],
+    ["punch", "punch"],
+  ] as const)("the bomb underfoot sent off with the action button (%s) strikes the %s pose", (ability, pose) => {
+    const s = makeGame(corridor("1.....2"));
+    Object.assign(s.players[0], { [ability]: true, facing: "right" });
+    step(s, { p1: { bomb: true } });
+    const before = structuredClone(s);
+    step(s, { p1: { action: true } });
+    expect(poses(before, s)).toEqual([`p1 ${pose}`]);
+  });
+});
+
 describe("diffGame: new bombs", () => {
   test("a rubber bomb bouncing off a wall makes a bounce, heading back", () => {
     const s = makeGame(corridor("1...#.2"));

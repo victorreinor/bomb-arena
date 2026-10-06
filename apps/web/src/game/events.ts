@@ -97,9 +97,9 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
 
   const placed = next.bombs.filter((b) => !prev.bombs.some((o) => o.id === b.id));
   events.push(...bombsPlaced(placed, (id) => next.players.some((p) => p.id === id && p.alive)));
-  /** whoever stands on the tile just behind (x, y) going `dir`: the one who kicked or punched it */
-  const behind = (x: number, y: number, dir: Dir) =>
-    next.players.find((p) => p.alive && Math.floor(p.x) === x - DIR_VEC[dir].dx && Math.floor(p.y) === y - DIR_VEC[dir].dy);
+  const standingOn = (x: number, y: number) => next.players.find((p) => p.alive && Math.floor(p.x) === x && Math.floor(p.y) === y);
+  /** whoever kicked or punched the bomb that was on (x, y) off `dir`-wards: standing just behind it, or else on top of it */
+  const striker = (x: number, y: number, dir: Dir) => standingOn(x - DIR_VEC[dir].dx, y - DIR_VEC[dir].dy) ?? standingOn(x, y);
   for (const u of next.powerUps) {
     if (!prev.powerUps.some((o) => o.x === u.x && o.y === u.y && o.kind === u.kind)) {
       events.push({ type: "itemDrop", x: u.x, y: u.y, kind: u.kind });
@@ -142,13 +142,14 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
     if (!before) continue;
     if (b.slide && !before.slide) {
       events.push({ type: "kick", x: b.x, y: b.y, dir: b.slide });
-      const kicker = behind(b.x, b.y, b.slide);
+      // from where it lay: by now it has slid a tile on
+      const kicker = striker(before.x, before.y, b.slide);
       if (kicker) events.push({ type: "pose", id: kicker.id, pose: "kick" });
     }
     if (b.slide && before.slide && b.slide !== before.slide) events.push({ type: "bounce", x: b.x, y: b.y, dir: b.slide });
     if (b.flight && !before.flight) {
       events.push({ type: "throw", x: b.x, y: b.y });
-      const by = before.held ?? behind(b.x, b.y, b.flight.dir)?.id;
+      const by = before.held ?? striker(b.x, b.y, b.flight.dir)?.id;
       if (by) events.push({ type: "pose", id: by, pose: before.held ? "throw" : "punch" });
     }
     if (before.flight && !b.flight) events.push({ type: "land", x: b.x, y: b.y, power: b.power });
