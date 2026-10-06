@@ -28,9 +28,9 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 |---|---|
 | `types.ts` | `GameState`, `Player`, `Bomb`, `PowerUp`, `Input`; listas `POWERUP_KINDS`, `PET_KINDS`; `ABILITY_FIELDS` (item de habilidade → campo do jogador); `TILE` (com o caixote, `CRATE`) e `FLOOR` (chão especial de cada casa: gelo, lava, esteira por direção em `BELT_DIRS`, portal por par) |
 | `constants.ts` | Todos os números ajustáveis: `TICK_RATE` 30, pavio, alcance, velocidades, pesos de drop, recargas dos pets |
-| `maps.ts` | Mapas em ASCII de qualquer tamanho (`#` pedra, `+` tijolo, `o` tijolo sorteado por `softDensity`, `.` livre, dígitos = início; as vagas são os inícios, `mapSeats`; `=` caixote, `~` gelo, `*` lava, `^ > v <` esteira, `A`–`D` portais, cada letra duas vezes), `MAPS`, `MAP_IDS`, `SPAWN_ORDER` |
+| `maps.ts` | Mapas em ASCII de qualquer tamanho (`#` pedra, `+` tijolo, `o` tijolo sorteado por `softDensity`, `.` livre, dígitos = início; as vagas são os inícios, `mapSeats`; `=` caixote, `~` gelo, `*` lava, `^ > v <` esteira, `A`–`D` portais, cada letra duas vezes), `MAPS`, `MAP_IDS`, `SPAWN_ORDER`; `RANDOM_MAP` (a escolha "Aleatório" do lobby) e `drawMap`, que sorteia sem repetir o último |
 | `game.ts` | `createGame`, `step` (um tick), `stepPlayer`, `pickUp`, bombas (perfurante, de borracha, minas: `isBuried`, `bombAt` só vê as que bloqueiam, `groundBombAt` vê também as enterradas), explosões, chute/soco/luva, quique na cabeça, pets, vingança, sudden death, ranking |
-| `room.ts` | Sala: membros, anfitrião, cor, pronto, vagas, bots, opções, série/placar, reconexão (10 s), `handleClientMessage`, `stepRoom`, `inputAcks`, `roomView` |
+| `room.ts` | Sala: membros, anfitrião, cor, pronto, vagas, bots, opções (mapa ou sorteio, modo em times, fogo amigo, série, tempo, vingança), time de cada membro, série/placar, reconexão (10 s), `handleClientMessage`, `stepRoom`, `inputAcks`, `roomView` |
 | `protocol.ts` | Mensagens `ClientMsg`/`ServerMsg`, `RoomView`, `toSnapshot`/`fromSnapshot` (com as mudanças do protocolo 2), `PROTOCOL_VERSION`, códigos de sala |
 | `bot.ts` | Mapa de perigo (`dangerMap`, com a lava 2 s antes de explodir; aceita um `BombView` com o que o bot notou e como ele avalia cada bomba), percepção (`glance`: o que o bot faz de cada bomba, sorteado uma vez), decisão (`botInput`), fuga (`shelter`) e plano de plantar (`planDrop`, que conta com a bomba em linha), caminhos (`explore`, que já desliza no gelo e atravessa portais, `stepPath`), níveis em `PROFILES` (cada um é um `BotProfile`; o `botInput` também aceita um perfil avulso, que é como os testes e o benchmark usam um jogador que não muda quando os níveis são ajustados). Medido por `tools/bot-bench.ts` (`bun run bench:bots`) |
 | `rng.ts` | mulberry32 (`nextRandom`, `randomSeed`) |
@@ -49,11 +49,11 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 ### Sala (`room.ts`)
 
-`RoomState` guarda membros (`Member`, com `bot: BotLevel | null`), anfitrião, opções (mapa, vagas, vingança, melhor de N, tempo), placar, o jogo em andamento (`game`) e os comandos atuais de cada jogador (`inputs`, com `seq` e `since`). `stepRoom` remove quem passou dos 10 s desconectado, pede comandos aos bots, corta o relógio para 20 s se só sobraram bots vivos (`hurryBotsAlone`, que o treino local também chama), roda `step`, apaga os botões (eles valem um tick só) e, no fim da partida, conta pontos e volta ao lobby após 10 s de pódio. Quem entra com a partida em andamento assiste e joga a próxima (`inGame: false`).
+`RoomState` guarda membros (`Member`, com `bot: BotLevel | null` e o `team` em que jogam quando a sala está em times), anfitrião, opções (mapa ou `randomMap`, vagas, vingança, `teams`, `friendlyFire`, melhor de N, tempo), placar, o jogo em andamento (`game`) e os comandos atuais de cada jogador (`inputs`, com `seq` e `since`). `stepRoom` remove quem passou dos 10 s desconectado, pede comandos aos bots, corta o relógio para 20 s se só sobraram bots vivos (`hurryBotsAlone`, que o treino local também chama), roda `step`, apaga os botões (eles valem um tick só) e, no fim da partida, conta pontos e volta ao lobby após 10 s de pódio. Quem entra com a partida em andamento assiste e joga a próxima (`inGame: false`).
 
 ## apps/server
 
-- `index.ts`: o Worker. Aceita só `/ws/<CÓDIGO>?pid=&name=&create=1&max=`, limita conexões por IP (por instância) e encaminha ao Durable Object do código.
+- `index.ts`: o Worker. Aceita só `/ws/<CÓDIGO>?pid=&name=&create=1&max=&teams=1` (os dois últimos valem para quem cria a sala), limita conexões por IP (por instância) e encaminha ao Durable Object do código.
 - `room.ts`: a classe `Room`. Usa WebSockets simples (sem hibernação, porque o loop precisa ficar vivo) e um loop de passo fixo de 33 ms que recupera até 5 ticks atrasados. Por conexão, aplica limite de 40 msg/s com rajada de 80 e mensagens de no máximo 512 bytes. O que transmite:
   - `room` (`RoomView`) quando algo visível do lobby muda;
   - `state` a cada tick com partida (montado pelo `SnapshotStream` da engine, que guarda o que já foi enviado): o snapshot sem `rng`/`nextBombId` e sem o dono de cada chama, `tiles` só quando o tabuleiro muda ou alguém chega, `acks` só dos jogadores cujo comando mudou e, durante o pódio, 1 por segundo. Quem conectou com `v=2` recebe jogadores e bombas só com o que mudou desde o snapshot anterior (`changes`: por jogador, os campos que mudaram ou `null`; por bomba, pelo id, os campos que mudaram ou a bomba inteira se é nova), e tudo completo uma vez por segundo, quando alguém chega e a cada rodada. Quem não mandou `v` recebe tudo completo. Cada forma só é montada se alguém precisa dela.
@@ -140,12 +140,12 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 **Nova mensagem ou opção de sala**
 1. Variante em `ClientMsg` (`protocol.ts`), campo opcional em `RoomView` se o lobby precisar mostrar.
-2. Função em `room.ts` que valida (quem pode, valores aceitos) e o `case` em `handleClientMessage`.
+2. Função em `room.ts` que valida (quem pode, valores aceitos) e o `case` em `handleClientMessage`. Se a opção pode impedir a partida de começar, um caso em `StartBlocker`/`startBlocker`: o typecheck cobra o texto do botão no `Lobby.tsx`.
 3. Teste em `packages/engine/test/messages.test.ts` ou `room.test.ts`; interface no `Lobby.tsx`.
 4. Publicar o servidor antes do push do cliente.
 
 ## Verificação
 
 - `bun run test`: regras, salas, mensagens, pets, vingança, sudden death, série e bots (`packages/engine/test`, helpers em `test/helpers.ts`), mais a predição e a reserva de reprodução do cliente (`apps/web/test`). Os testes do cliente rodam o quadro do `OnlineGame` (sem desenho) contra uma sala da engine numa rede simulada (`loopback.ts`, com atraso de ida, de volta e snapshots atrasados) e conferem o que o jogador veria: o boneco responde na hora, nunca fica mais de um tick de caminhada longe do servidor e termina exatamente onde o servidor diz; bombas e itens aparecem e somem uma vez só.
-- `bun run e2e`: abre conexões reais contra o servidor local (criar, entrar, cheio, iniciar, comandos e `acks`, bots, sair).
+- `bun run e2e`: abre conexões reais contra o servidor local (criar, entrar, cheio, iniciar, comandos e `acks`, bots, sala em times, mapa sorteado, sair).
 - No navegador: `bun run dev:all` e várias abas (cada aba é um jogador). Para simular rede ruim, use o throttling do DevTools.

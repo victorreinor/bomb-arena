@@ -45,7 +45,8 @@ A inspiração são os Super Bomberman 1 a 4, mas tudo aqui é original: cada pi
 ## 🧨 O que tem na arena
 
 - **Online de verdade:** sala com código de 5 letras ou link de convite, de 2 a 4 vagas, bots para completar a sala, série "melhor de 3 / 5" e pódio contando quem explodiu quem.
-- **11 mapas:** Clássico, Campo Aberto, Labirinto e Quadrantes; Duelo e Confronto para o x1; e cinco com mecânica própria: esteiras na Linha de Montagem, Portais, gelo no Lago Congelado, caixotes no Armazém e fendas de lava no Vulcão.
+- **Cada um por si ou em times:** 2x2, 2x1 ou 3x1, com pessoas ou bots de cada lado, e fogo amigo ligado ou não.
+- **11 mapas:** Clássico, Campo Aberto, Labirinto e Quadrantes; Duelo e Confronto para o x1; e cinco com mecânica própria: esteiras na Linha de Montagem, Portais, gelo no Lago Congelado, caixotes no Armazém e fendas de lava no Vulcão. Ou deixe no aleatório e cada partida sorteia um.
 - **17 itens:** além de mais bombas, mais fogo e mais velocidade, dá para chutar, socar e arremessar bombas, detonar à distância, atravessar tijolos e bombas, vestir colete, pegar a caveira (6 maldições, e passam por contato), plantar bomba perfurante, de borracha (quica e volta) ou mina enterrada.
 
   <img src=".github/readme/items.png" alt="Os 17 itens do jogo">
