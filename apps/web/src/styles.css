@@ -225,7 +225,7 @@ button.channel.off { opacity: 0.55; background: #1f1f30; }
 .game-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: center; }
 .game-top button { padding: 6px 12px; }
 .match-timer { font-size: 18px; font-weight: bold; padding: 4px 10px; border-radius: 6px; background: var(--panel); }
-.match-timer.soon { color: #ffb3bd; }
+.match-timer.soon { color: #fff; background: #c9302c; animation: hurry-blink 1s steps(1) infinite; }
 .match-timer.hurry { color: #fff; background: #c9302c; animation: hurry-blink 0.5s steps(1) infinite; }
 @keyframes hurry-blink { 50% { background: #7a1c1a; } }
 .member-score { font-size: 13px; color: var(--accent); }
@@ -238,7 +238,7 @@ button.channel.off { opacity: 0.55; background: #1f1f30; }
 .podium-kills { font-size: 12px; color: var(--accent); margin-bottom: 2px; }
 .podium-overlay .knockouts { max-width: 92%; font-size: 12px; line-height: 1.5; color: var(--text); }
 .notice.champion, .champion-banner { color: var(--accent); font-weight: bold; }
-.reduce-motion .match-timer.hurry { animation: none; }
+.reduce-motion .match-timer.hurry, .reduce-motion .match-timer.soon { animation: none; }
 
 /* ---------- settings panel ---------- */
 .settings-anchor { position: relative; }

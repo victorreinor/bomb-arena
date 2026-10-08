@@ -20,8 +20,10 @@ import { ACCENT, ACCENT_INK } from "./colors";
 import type { AmbientSource, Effects } from "./effects";
 import type { ActionPose } from "./events";
 import { drawFlames } from "./fire";
+import { FALL_WARN_TICKS, HURRY_BANNER_TICKS, HURRY_COUNT_SECONDS, HURRY_WARN_TICKS, nextFalls, secondsLeft } from "./hurry";
 import { ITEM_COL } from "./items";
 import { mapInfo } from "./mapInfo";
+import { settings } from "./settings";
 import { ANCHOR, BOMB_LOOKS, TILE_PX, bombLook, drawBomber, drawFloor, drawFloorCell, drawMount, drawTile, tileName, type BomberFrame, type Sprites } from "./sprites";
 import { TEAM_CSS } from "./teams";
 
@@ -38,6 +40,8 @@ const CARRY_WALK: BomberFrame[] = ["carryWalkA", "carry", "carryWalkB", "carry"]
 const TAG_TICKS = 2 * TICK_RATE;
 /** how long "JÁ!" stays up once play starts, in ticks */
 const GO_TICKS = Math.round(0.7 * TICK_RATE);
+/** sudden death's red, for its warnings and the shadows of the blocks about to fall */
+const DANGER = "#ff3b30";
 
 /** the bomb sheet's frames in pulse order */
 const PULSE = [0, 1, 2, 1];
@@ -173,6 +177,7 @@ export function render(
 
   const bob = Math.sin(timeMs / 180) * 0.8;
   for (const u of state.powerUps) cell(sprites.powerups, ITEM_COL[u.kind], u.x * TILE_PX, u.y * TILE_PX + bob);
+  drawFallShadows(ctx, state, timeMs);
 
   /** Where (in sprite pixels) and how high above the floor a bomb is drawn. */
   const bombSpot = (b: Bomb) => {
@@ -349,6 +354,92 @@ export function render(
 
   ctx.restore();
   drawCountdown(ctx, state, timeMs);
+  drawHurry(ctx, state, timeMs, effects);
+}
+
+/**
+ * The shadow of each sudden-death block about to fall (see nextFalls): it darkens and spreads to fill the
+ * tile as the block comes down, with a red edge blinking in its last half second.
+ */
+function drawFallShadows(ctx: CanvasRenderingContext2D, state: GameState, timeMs: number) {
+  const falls = nextFalls(state);
+  if (falls.length === 0) return;
+  const blink = settings.reduceMotion || Math.floor(timeMs / 110) % 2 === 0;
+  ctx.save();
+  for (const f of falls) {
+    const near = 1 - f.ticks / FALL_WARN_TICKS;
+    const inset = Math.round((1 - near) * 5);
+    ctx.fillStyle = `rgba(0,0,0,${0.15 + 0.35 * near})`;
+    ctx.fillRect(f.x * TILE_PX + inset, f.y * TILE_PX + inset, TILE_PX - inset * 2, TILE_PX - inset * 2);
+    if (near < 0.5) continue;
+    ctx.globalAlpha = blink ? 0.9 : 0.35;
+    ctx.strokeStyle = DANGER;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(f.x * TILE_PX + 0.5, f.y * TILE_PX + 0.5, TILE_PX - 1, TILE_PX - 1);
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+}
+
+/**
+ * Sudden death on its way, over the board: a banner as the warning goes up, the last seconds counted out
+ * big and see-through (so play still shows), and "SUDDEN DEATH!" as the blocks start to fall.
+ */
+function drawHurry(ctx: CanvasRenderingContext2D, state: GameState, timeMs: number, effects?: Effects) {
+  if (state.phase !== "playing" || state.timeLeft === null) return;
+  const { height } = ctx.canvas;
+  const still = settings.reduceMotion;
+  const blink = still || Math.floor(timeMs / 180) % 2 === 0;
+  const left = state.timeLeft;
+  const shoutAt = left === 0 ? effects?.hurryShout() : null;
+  ctx.save();
+  if (left > HURRY_WARN_TICKS - HURRY_BANNER_TICKS && left <= HURRY_WARN_TICKS) {
+    const t = (HURRY_WARN_TICKS - left) / HURRY_BANNER_TICKS;
+    ctx.globalAlpha = Math.min(1, (1 - t) * 4); // fades out over its last quarter
+    const grow = still ? 1 : 1 + 0.3 * Math.max(0, 1 - t * 8); // lands in its first eighth
+    banner(ctx, height * 0.3);
+    shout(ctx, "SUDDEN DEATH", height * 0.45, 0.11 * grow, blink ? DANGER : "#ffffff");
+    const seconds = secondsLeft(left);
+    shout(ctx, `EM ${seconds} SEGUNDOS`, height * 0.58, 0.06, "#ffffff");
+  } else if (left > 0 && left <= HURRY_COUNT_SECONDS * TICK_RATE) {
+    const seconds = secondsLeft(left);
+    const t = (seconds * TICK_RATE - left) / TICK_RATE; // how far into this second
+    ctx.globalAlpha = 0.6 * (1 - 0.5 * t);
+    shout(ctx, String(seconds), height / 2, 0.3 * (still ? 1 : 1.25 - 0.25 * Math.sqrt(t)), DANGER);
+  } else if (shoutAt != null) {
+    ctx.globalAlpha = Math.min(1, (1 - shoutAt) * 3);
+    banner(ctx, height * 0.22);
+    shout(ctx, "SUDDEN DEATH!", height / 2, 0.12 * (still ? 1 : 1 + 0.15 * shoutAt), blink ? DANGER : "#ffffff");
+  }
+  ctx.restore();
+}
+
+/** A dark band across the middle of the board, `tall` canvas pixels high, for text to stand out on. */
+function banner(ctx: CanvasRenderingContext2D, tall: number) {
+  const { width, height } = ctx.canvas;
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(0, (height - tall) / 2, width, tall);
+}
+
+/**
+ * Big outlined text centred across the board at height `y` (canvas pixels): `size` is a share of the board's
+ * height, shrunk if the text would not fit its width.
+ */
+function shout(ctx: CanvasRenderingContext2D, text: string, y: number, size: number, fill: string) {
+  const { width, height } = ctx.canvas;
+  const font = (px: number) => `bold ${Math.round(px)}px ui-monospace, Menlo, monospace`;
+  let px = height * size;
+  ctx.font = font(px);
+  const room = (width * 0.92) / ctx.measureText(text).width;
+  if (room < 1) ctx.font = font((px *= room));
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = Math.round(Math.min(height * 0.025, px * 0.2));
+  ctx.strokeStyle = ACCENT_INK;
+  ctx.fillStyle = fill;
+  ctx.strokeText(text, width / 2, y);
+  ctx.fillText(text, width / 2, y);
 }
 
 /** The ring round a bomber's feet in a team match: its radii and the widths of its line and of the dark edge under it, in sprite pixels. */
@@ -395,20 +486,10 @@ function drawCountdown(ctx: CanvasRenderingContext2D, state: GameState, timeMs: 
   /** how far "JÁ!" has got through its moment, 0 to 1 */
   const gone = (state.tick - state.goTick) / GO_TICKS;
   if (state.goTick === 0 || (!ready && gone > 1)) return;
-  const { width, height } = ctx.canvas;
   // "Pronto?" breathes; "Já!" bursts out and fades
   const grow = ready ? 1 + 0.04 * Math.sin(timeMs / 120) : 1 + 0.5 * gone;
   ctx.save();
   ctx.globalAlpha = ready ? 1 : 1 - gone;
-  ctx.font = `bold ${Math.round(height * 0.13 * grow)}px ui-monospace, Menlo, monospace`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = Math.round(height * 0.025);
-  ctx.strokeStyle = ACCENT_INK;
-  ctx.fillStyle = ready ? "#ffffff" : ACCENT;
-  const text = ready ? "PRONTO?" : "JÁ!";
-  ctx.strokeText(text, width / 2, height / 2);
-  ctx.fillText(text, width / 2, height / 2);
+  shout(ctx, ready ? "PRONTO?" : "JÁ!", ctx.canvas.height / 2, 0.13 * grow, ready ? "#ffffff" : ACCENT);
   ctx.restore();
 }

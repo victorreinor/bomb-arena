@@ -24,6 +24,8 @@ export type SfxName =
   | "jump"
   | "push"
   | "haunt"
+  | "siren"
+  | "count"
   | "hurry"
   | "go"
   | "thud"
@@ -471,6 +473,16 @@ class AudioEngine {
         this.slide("triangle", 660, 330, t, 0.7, 0.35, bus);
         this.slide("triangle", 672, 318, t, 0.7, 0.3, bus);
         break;
+      case "siren":
+        // sudden death on its way: a siren wailing up and down twice, an octave of body under it
+        this.wail("square", [587, 1175, 587, 1175, 587], t, 0.3, 0.16, bus);
+        this.wail("triangle", [294, 587, 294, 587, 294], t, 0.3, 0.3, bus);
+        break;
+      case "count":
+        // one of the last seconds before sudden death: a short, bright clock beep
+        this.tone("square", 1047, t, 0.1, 0.35, bus);
+        this.tone("triangle", 2093, t, 0.07, 0.18, bus);
+        break;
       case "hurry":
         // alarm: three rising two-tone beeps
         for (let k = 0; k < 3; k++) {
@@ -527,6 +539,24 @@ class AudioEngine {
     osc.connect(g).connect(out);
     osc.start(t);
     osc.stop(t + dur + 0.02);
+  }
+
+  /** One held note gliding through `pitches`, `step` seconds from each to the next, at an even volume (a siren). */
+  private wail(type: OscillatorType, pitches: number[], t: number, step: number, gain: number, out: AudioNode) {
+    const ctx = this.ctx!;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    const end = t + step * (pitches.length - 1);
+    osc.type = type;
+    osc.frequency.setValueAtTime(pitches[0], t);
+    pitches.slice(1).forEach((f, k) => osc.frequency.linearRampToValueAtTime(f, t + step * (k + 1)));
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.03);
+    g.gain.setValueAtTime(gain, end - 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, end);
+    osc.connect(g).connect(out);
+    osc.start(t);
+    osc.stop(end + 0.02);
   }
 
   private noiseHit(

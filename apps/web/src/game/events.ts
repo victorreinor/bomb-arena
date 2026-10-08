@@ -17,6 +17,7 @@ import {
   type Player,
   type PowerUpKind,
 } from "@bomb-arena/engine";
+import { HURRY_COUNT_SECONDS, HURRY_WARN_TICKS, secondsLeft } from "./hurry";
 import { warped } from "./snapshots";
 
 /** What a bomber is caught doing for a moment (the sprite strikes the pose) */
@@ -49,6 +50,11 @@ export type GameEvent =
   | { type: "stun"; id: string; x: number; y: number }
   | { type: "pose"; id: string; pose: ActionPose }
   | { type: "haunt"; x: number; y: number }
+  /** sudden death is HURRY_WARN_TICKS away */
+  | { type: "hurrySoon" }
+  /** one of the last seconds before sudden death has started: `seconds` to go */
+  | { type: "hurryCount"; seconds: number }
+  /** sudden death: the clock ran out and the blocks start to fall */
   | { type: "hurry" }
   /** the countdown is over: everyone can move */
   | { type: "go" }
@@ -202,6 +208,11 @@ export function diffGame(prev: GameState, next: GameState): GameEvent[] {
   }
 
   if (countingDown(prev) && !countingDown(next)) events.push({ type: "go" });
+  if (prev.timeLeft !== null && next.timeLeft !== null && next.timeLeft > 0) {
+    if (prev.timeLeft > HURRY_WARN_TICKS && next.timeLeft <= HURRY_WARN_TICKS) events.push({ type: "hurrySoon" });
+    const seconds = secondsLeft(next.timeLeft);
+    if (seconds <= HURRY_COUNT_SECONDS && seconds < secondsLeft(prev.timeLeft)) events.push({ type: "hurryCount", seconds });
+  }
   if (prev.timeLeft !== null && prev.timeLeft > 0 && next.timeLeft === 0) events.push({ type: "hurry" });
   if (next.fallen > prev.fallen) {
     const cells = fallOrder(next.width, next.height)

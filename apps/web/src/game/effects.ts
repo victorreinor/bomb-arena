@@ -8,6 +8,10 @@ import { ANCHOR, THEME_COLORS, TILE_PX as T, drawBomber, drawMount, type Sprites
 
 /** All positions and sizes below are in sprite pixels (one tile = T). */
 const MAX_PARTICLES = 500;
+/** how long "SUDDEN DEATH!" stays over the board once the blocks start falling, in seconds */
+const HURRY_SHOUT_SECONDS = 1.6;
+/** the red frame round the arena that sudden death's warnings light up: its width (sprite pixels) and how fast it fades (per second) */
+const ALARM_FRAME = { width: 3, fade: 0.9 };
 
 type ParticleKind = "spark" | "smoke" | "debris";
 
@@ -124,6 +128,10 @@ export class Effects {
   private poses = new Map<string, { pose: ActionPose; until: number }>();
   private shake = 0;
   private flash = 0;
+  /** how strongly the red alarm frame glows, fading */
+  private alarm = 0;
+  /** when (update() time, ms) sudden death started; -Infinity before */
+  private hurryAt = -Infinity;
   /** the map's look, for the colour of debris */
   private theme: TileTheme = "garden";
   private lastNow = 0;
@@ -139,6 +147,14 @@ export class Effects {
     this.poses.clear();
     this.shake = 0;
     this.flash = 0;
+    this.alarm = 0;
+    this.hurryAt = -Infinity;
+  }
+
+  /** How far "SUDDEN DEATH!" has got through its moment over the board, 0 to 1; null when it isn't up. */
+  hurryShout(): number | null {
+    const t = (this.lastNow - this.hurryAt) / 1000 / HURRY_SHOUT_SECONDS;
+    return t >= 0 && t < 1 ? t : null;
   }
 
   /** The pose this bomber is caught in right now, if any (kicking, punching, throwing, laying a bomb). */
@@ -211,7 +227,16 @@ export class Effects {
         case "blockFall":
           for (const c of e.cells) this.blockFall(c.x, c.y);
           break;
+        case "hurrySoon":
+          this.alarm = 1.5;
+          this.jolt(0.6);
+          break;
+        case "hurryCount":
+          this.alarm = Math.max(this.alarm, 0.6);
+          break;
         case "hurry":
+          this.alarm = 2;
+          this.hurryAt = this.lastNow;
           this.jolt(1, 0.25);
           break;
         case "warp":
@@ -661,6 +686,7 @@ export class Effects {
     this.shake *= Math.exp(-9 * dt);
     if (this.shake < 0.05) this.shake = 0;
     this.flash = Math.max(0, this.flash - dt * 2.4);
+    this.alarm = Math.max(0, this.alarm - dt * ALARM_FRAME.fade);
   }
 
   shakeOffset(): { x: number; y: number } | null {
@@ -728,6 +754,8 @@ export class Effects {
     for (const d of this.deaths) this.drawDeath(ctx, sprites, d);
     for (const r of this.runaways) this.drawRunaway(ctx, sprites, r);
 
+    if (this.alarm > 0.01) this.drawAlarm(ctx, width, height);
+
     if (this.flash > 0.01) {
       ctx.save();
       ctx.globalAlpha = Math.min(0.5, this.flash);
@@ -735,6 +763,21 @@ export class Effects {
       ctx.fillRect(-16, -16, width + 32, height + 32);
       ctx.restore();
     }
+  }
+
+  /** A red frame round the arena, throbbing (steady with reduced motion) as it fades. */
+  private drawAlarm(ctx: CanvasRenderingContext2D, width: number, height: number) {
+    const throb = settings.reduceMotion ? 0.8 : 0.6 + 0.4 * Math.sin(this.lastNow / 70);
+    const w = ALARM_FRAME.width;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, this.alarm) * throb;
+    ctx.strokeStyle = "#ff3b30";
+    ctx.lineWidth = w;
+    ctx.strokeRect(w / 2, w / 2, width - w, height - w);
+    ctx.globalAlpha *= 0.4; // a softer glow just inside it
+    ctx.lineWidth = w * 3;
+    ctx.strokeRect(w * 2.5, w * 2.5, width - w * 5, height - w * 5);
+    ctx.restore();
   }
 
   /** The lost mount hops away in a hurry, blinking and fading. */
