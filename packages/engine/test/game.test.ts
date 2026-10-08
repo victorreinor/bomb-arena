@@ -9,6 +9,7 @@ import {
   GRID_W,
   MAPS,
   mapSeats,
+  PLAYER_RADIUS,
   TILE,
   computeRanking,
   countingDown,
@@ -165,6 +166,29 @@ describe("movement", () => {
     run(s, 30, { p1: { dx: -1 } });
     expect(s.players[0].x).toBeGreaterThan(2.3);
     expect(s.players[0].x).toBeLessThanOrEqual(x);
+  });
+
+  test("someone only brushing the tile a bomb is laid on is held back from it, not let through", () => {
+    const s = makeGame(corridor("1........2"));
+    const [p1, p2] = s.players;
+    testBomb(s, 1, 1); // p2's own bomb behind them: the new one shuts them in
+    p1.x = 3.5;
+    p2.x = 2.7; // centre on (2,1), shoulder already over (3,1), walking on to the right
+    step(s, { p1: { bomb: true }, p2: { dx: 1 } });
+    expect(p2.x).toBeLessThanOrEqual(3 - PLAYER_RADIUS);
+    run(s, 30, { p2: { dx: 1 } });
+    expect(p2.x).toBeLessThanOrEqual(3 - PLAYER_RADIUS);
+    expect(p2.passing).toEqual([]);
+  });
+
+  test("someone standing on the tile a bomb is laid on may walk off it, either way", () => {
+    const s = makeGame(corridor("1........2"));
+    const [p1, p2] = s.players;
+    p1.x = 3.5;
+    p2.x = 3.3; // centre on (3,1)
+    step(s, { p1: { bomb: true }, p2: { dx: 1 } });
+    run(s, 20, { p2: { dx: 1 } });
+    expect(p2.x).toBeGreaterThan(4 + PLAYER_RADIUS);
   });
 
   test("slides around a corner when slightly misaligned", () => {

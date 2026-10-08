@@ -570,9 +570,27 @@ function newBomb(state: GameState, p: Player, x: number, y: number, range: numbe
   return bomb;
 }
 
-/** Whoever a bomb appears under (dropped, or landing) may walk off it. */
+/**
+ * Whoever a bomb appears under (dropped, or landing) may walk off it. Someone only brushing its tile, their
+ * centre on the next one, is nudged back off it instead: the bomb blocks them from then on, as any other.
+ */
 function letStandersOff(state: GameState, bomb: Bomb) {
-  for (const p of state.players) if (p.alive && overlapsTile(p.x, p.y, bomb.x, bomb.y)) p.passing.push(bomb.id);
+  for (const p of state.players) {
+    if (!p.alive || !overlapsTile(p.x, p.y, bomb.x, bomb.y)) continue;
+    const onIt = Math.floor(p.x) === bomb.x && Math.floor(p.y) === bomb.y;
+    if (onIt || p.jump) p.passing.push(bomb.id);
+    else nudgeOff(p, bomb.x, bomb.y);
+  }
+}
+
+/** Moves a bomber whose centre is off tile (tx, ty) flush against it, the shorter way back towards their own tile. */
+function nudgeOff(p: Player, tx: number, ty: number) {
+  const r = PLAYER_RADIUS;
+  const flush = (own: number, t: number) => (own < t ? t - r - EPS : own > t ? t + 1 + r + EPS : null);
+  const fx = flush(Math.floor(p.x), tx);
+  const fy = flush(Math.floor(p.y), ty);
+  if (fy === null || (fx !== null && Math.abs(fx - p.x) <= Math.abs(fy - p.y))) p.x = fx!;
+  else p.y = fy;
 }
 
 /** A bomber who turns up on a bomb (landing from a hop, out of a portal) may walk off it. */
@@ -735,7 +753,7 @@ function launchBomb(state: GameState, bomb: Bomb, dir: Dir, distance = THROW_DIS
 
 /**
  * A flying bomb touches down. Whoever it lands right on top of is left seeing stars and it bounces on
- * to the next free tile (as in the SNES games); anyone only brushing the tile may walk off it.
+ * to the next free tile (as in the SNES games); anyone only brushing the tile is nudged off it.
  */
 function landBomb(state: GameState, b: Bomb) {
   const { toX, toY, dir } = b.flight!;

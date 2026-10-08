@@ -7,6 +7,7 @@ import {
   FLIGHT_TICKS,
   INVULN_TICKS,
   MAX_RANGE,
+  PLAYER_RADIUS,
   REMOTE_FUSE_TICKS,
   START_RANGE,
   STUN_TICKS,
@@ -271,11 +272,14 @@ describe("bombs landing on someone", () => {
     expect(p2.x).toBeLessThan(5.5);
   });
 
-  test("someone only brushing the landing tile isn't hit, and can walk off the bomb", () => {
+  test("someone only brushing the landing tile isn't hit, but is nudged off it and kept off", () => {
     const { s, p2, bomb } = punchAt(4.7); // centre on (4,1), shoulder over (5,1)
     run(s, FLIGHT_TICKS);
     expect(p2.stunned).toBe(0);
     expect(bomb.x).toBe(5);
+    expect(p2.x).toBeLessThanOrEqual(5 - PLAYER_RADIUS);
+    run(s, 10, { p2: { dx: 1 } });
+    expect(p2.x).toBeLessThanOrEqual(5 - PLAYER_RADIUS);
     run(s, 10, { p2: { dx: -1 } });
     expect(p2.x).toBeLessThan(4.5);
   });
