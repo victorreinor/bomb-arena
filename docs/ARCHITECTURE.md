@@ -90,6 +90,7 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 - `render.ts`: escala 3x, tabuleiro com o cenário do mapa (`mapInfo(id).theme`) e os chãos especiais (gelo, crateras de lava e caixotes na imagem do tabuleiro; esteiras, portais e o brilho da lava a cada quadro), sombras, itens, bombas, chamas (`fire.ts`, procedurais), bonecos com pet em duas camadas (corpo atrás, cabeça na frente), poses de ação, fantasmas e efeitos.
 - `effects.ts`: partículas, ondas de choque, tremor e clarão a partir dos eventos; "reduzir tremor e clarão" no painel ⚙️.
+- `hurry.ts`: os tempos do aviso do sudden death (faixa aos 10 s, contagem dos 5 últimos segundos) e `nextFalls`, as casas e os ticks dos próximos blocos, que o `render.ts` desenha como sombra.
 - `audio.ts`: todo o som é sintetizado com Web Audio (músicas e efeitos, sem arquivos), com volume e mudo por canal salvos no navegador. `sfx.ts` traduz eventos em efeitos; `musicFor` escolhe a música pelo estado.
 - `haptics.ts`: padrões de vibração por evento (`navigator.vibrate`), com opção de desligar.
 - `settings.ts`: preferências de conforto salvas no navegador (vibração, reduzir movimento).
@@ -146,6 +147,6 @@ TypeScript puro, sem dependências. Determinístico: o mesmo estado e os mesmos 
 
 ## Verificação
 
-- `bun run test`: regras, salas, mensagens, pets, vingança, sudden death, série e bots (`packages/engine/test`, helpers em `test/helpers.ts`), mais a predição e a reserva de reprodução do cliente (`apps/web/test`). Os testes do cliente rodam o quadro do `OnlineGame` (sem desenho) contra uma sala da engine numa rede simulada (`loopback.ts`, com atraso de ida, de volta e snapshots atrasados) e conferem o que o jogador veria: o boneco responde na hora, nunca fica mais de um tick de caminhada longe do servidor e termina exatamente onde o servidor diz; bombas e itens aparecem e somem uma vez só.
+- `bun run test`: regras, salas, mensagens, pets, vingança, sudden death, série e bots (`packages/engine/test`, helpers em `test/helpers.ts`), mais a predição, a reserva de reprodução, os eventos e o aviso do sudden death do cliente (`apps/web/test`). Os testes do cliente rodam o quadro do `OnlineGame` (sem desenho) contra uma sala da engine numa rede simulada (`loopback.ts`, com atraso de ida, de volta e snapshots atrasados) e conferem o que o jogador veria: o boneco responde na hora, nunca fica mais de um tick de caminhada longe do servidor e termina exatamente onde o servidor diz; bombas e itens aparecem e somem uma vez só.
 - `bun run e2e`: abre conexões reais contra o servidor local (criar, entrar, cheio, iniciar, comandos e `acks`, bots, sala em times com times e mapa sorteados, sair).
 - No navegador: `bun run dev:all` e várias abas (cada aba é um jogador). Para simular rede ruim, use o throttling do DevTools.
